@@ -44,6 +44,17 @@ public class WorkloadSetTemplate {
     public List<Integer> consumerPerSubscription = Collections.emptyList();
     public List<Integer> producerRate = Collections.emptyList();
 
+    // Optional single value used as initial publish rate for schedules and sustainable-rate probe
+    public Integer producerInitialRate;
+
+    public static class RatePoint {
+        public int timeSeconds;
+        public int rate;
+    }
+
+    public List<RatePoint> producerRateTimeline = Collections.emptyList();
+    public Integer producerRateTimelineIntervalSeconds = 1;
+
     public KeyDistributorType keyDistributor = KeyDistributorType.NO_KEY;
     public String payloadFile = null;
     public boolean useRandomizedPayloads = false;

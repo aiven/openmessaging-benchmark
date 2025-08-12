@@ -61,7 +61,9 @@ public class WorkloadGenerator implements AutoCloseable {
         this.workload = workload;
         this.worker = worker;
 
-        if (workload.consumerBacklogSizeGB > 0 && workload.producerRate == 0) {
+        if (workload.consumerBacklogSizeGB > 0
+                && workload.producerRate == 0
+                && workload.producerRateTimeline.isEmpty()) {
             throw new IllegalArgumentException(
                     "Cannot probe producer sustainable rate when building backlog");
         }
@@ -78,11 +80,22 @@ public class WorkloadGenerator implements AutoCloseable {
 
         ensureTopicsAreReady();
 
-        if (workload.producerRate > 0) {
+        if (!workload.producerRateTimeline.isEmpty()) {
+            if (workload.producerInitialRate == null || workload.producerInitialRate <= 0) {
+                throw new IllegalArgumentException(
+                        "producerInitialRate must be > 0 when producerRateTimeline is configured");
+            }
+            targetPublishRate = workload.producerInitialRate;
+        } else if (workload.producerRate > 0) {
             targetPublishRate = workload.producerRate;
         } else {
             // Producer rate is 0 and we need to discover the sustainable rate
-            targetPublishRate = 10000;
+            if (workload.producerInitialRate == null || workload.producerInitialRate <= 0) {
+                throw new IllegalArgumentException(
+                        "producerInitialRate must be > 0 when probing maximum sustainable rate "
+                                + "(producerRate == 0 and no timeline)");
+            }
+            targetPublishRate = workload.producerInitialRate;
 
             executor.execute(
                     () -> {
@@ -121,6 +134,8 @@ public class WorkloadGenerator implements AutoCloseable {
 
         worker.startLoad(producerWorkAssignment);
 
+        maybeStartPiecewiseSchedule();
+
         if (workload.warmupDurationMinutes > 0) {
             log.info("----- Starting warm-up traffic ({}m) ------", workload.warmupDurationMinutes);
             printAndCollectStats(workload.warmupDurationMinutes, TimeUnit.MINUTES);
@@ -145,6 +160,90 @@ public class WorkloadGenerator implements AutoCloseable {
 
         worker.stopAll();
         return result;
+    }
+
+    private void maybeStartPiecewiseSchedule() {
+        if (workload.producerRateTimeline.isEmpty()) {
+            return;
+        }
+
+        final List<Workload.RatePoint> pts = new ArrayList<>(workload.producerRateTimeline);
+        pts.sort(java.util.Comparator.comparingInt(p -> p.timeSeconds));
+
+        final int n = pts.size();
+        final int[] times = new int[n];
+        final int[] rates = new int[n];
+        for (int i = 0; i < n; i++) {
+            times[i] = Math.max(0, pts.get(i).timeSeconds);
+            rates[i] = Math.max(1, pts.get(i).rate);
+        }
+
+        final int tickSeconds = Math.max(1, workload.producerRateTimelineIntervalSeconds);
+        final double initialRate = Math.max(1.0, workload.producerInitialRate.doubleValue());
+
+        log.info("Starting piecewise-linear rate schedule with {} points (tick {}s)", n, tickSeconds);
+
+        final long startNanos = System.nanoTime();
+        executor.execute(
+                () -> {
+                    try {
+                        double lastTarget = Double.NaN;
+                        while (!runCompleted) {
+                            long elapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos);
+
+                            double target = targetRateAt(elapsedSeconds, initialRate, times, rates);
+
+                            // Only adjust when target meaningfully changes to avoid redundant calls
+                            if (Double.isNaN(lastTarget) || Math.abs(target - lastTarget) >= 1e-6) {
+                                worker.adjustPublishRate(target);
+                                lastTarget = target;
+                            }
+
+                            try {
+                                Thread.sleep(TimeUnit.SECONDS.toMillis(tickSeconds));
+                            } catch (InterruptedException e) {
+                                return;
+                            }
+                        }
+                    } catch (IOException e) {
+                        log.warn("Failure while applying rate timeline", e);
+                    }
+                });
+    }
+
+    private double targetRateAt(long tSec, double initialRate, int[] times, int[] rates) {
+        int idx = lowerBound(times, (int) tSec) - 1;
+        if (idx < 0) {
+            return initialRate;
+        }
+        if (idx >= times.length - 1) {
+            int lastRate = rates[rates.length - 1];
+            return Math.max(1.0, lastRate);
+        }
+        int t0 = times[idx];
+        int t1 = times[idx + 1];
+        int r0 = rates[idx];
+        int r1 = rates[idx + 1];
+        if (t1 <= t0) {
+            return Math.max(1.0, r1);
+        }
+        int clampedT = Math.min(t1, (int) tSec);
+        double ratio = (clampedT - t0) / (double) (t1 - t0);
+        return Math.max(1.0, r0 + (r1 - r0) * ratio);
+    }
+
+    private int lowerBound(int[] a, int key) {
+        int lo = 0;
+        int hi = a.length;
+        while (lo < hi) {
+            int mid = (lo + hi) >>> 1;
+            if (a[mid] < key) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo;
     }
 
     private void ensureTopicsAreReady() throws IOException {

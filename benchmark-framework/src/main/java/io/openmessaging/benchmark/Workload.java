@@ -43,6 +43,23 @@ public class Workload {
 
     public int producerRate;
 
+    // Initial publish rate used as the baseline for dynamic schedules and as the starting point
+    // for the sustainable-rate probe when producerRate == 0 and no timeline is configured.
+    // When a timeline is present, this value is required and producerRate is ignored.
+    public Integer producerInitialRate;
+
+    // Optional: piecewise-linear timeline of producer rates. Each point defines the desired
+    // absolute time offset (from startLoad) and the target rate at that time. The rate between
+    // consecutive points is linearly interpolated. If the first point timeSeconds > 0, the
+    // initial rate is the current producerRate value until the first point is reached.
+    public static class RatePoint {
+        public int timeSeconds; // time since startLoad
+        public int rate; // msgs/sec
+    }
+
+    public java.util.List<RatePoint> producerRateTimeline = java.util.Collections.emptyList();
+    public Integer producerRateTimelineIntervalSeconds = 1;
+
     /**
      * If the consumer backlog is > 0, the generator will accumulate messages until the requested
      * amount of storage is retained and then it will start the consumers to drain it.
