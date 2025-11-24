@@ -3,23 +3,7 @@
 [![Build](https://github.com/aiven/openmessaging-benchmark/actions/workflows/pr-build-and-test.yml/badge.svg)](https://github.com/aiven/openmessaging-benchmark/actions/workflows/pr-build-and-test.yml)
 [![License](https://img.shields.io/badge/license-Apache%202-4EB1BA.svg)](https://www.apache.org/licenses/LICENSE-2.0.html)
 
-This repository houses user-friendly, cloud-ready benchmarking suites for the following messaging platforms:
-
-* [Apache ActiveMQ Artemis](https://activemq.apache.org/components/artemis/)
-* [Apache Bookkeeper](https://bookkeeper.apache.org)
-* [Apache Kafka](https://kafka.apache.org)
-* [Apache Pulsar](https://pulsar.apache.org)
-* [Apache RocketMQ](https://rocketmq.apache.org)
-* Generic [JMS](https://javaee.github.io/jms-spec/)
-* [KoP (Kafka-on-Pulsar)](https://github.com/streamnative/kop)
-* [NATS JetStream](https://docs.nats.io/nats-concepts/jetstream)
-* [NATS Streaming (STAN)](https://docs.nats.io/legacy/stan/intro)
-* [NSQ](https://nsq.io)
-* [Pravega](https://pravega.io/)
-* [RabbitMQ](https://www.rabbitmq.com/)
-* [Redis](https://redis.com/)
-
-However, this fork is primarily focused on updating Kafka benchmarking.
+This repository includes benchmarking suites for a set of messaging platforms, but this fork is focused on [Apache Kafka](https://kafka.apache.org)
 
 ## How to use
 
@@ -80,6 +64,8 @@ This will set the `zone.id` variable for each worker, which can then be used in 
 client.rack={zone.id}
 client.id=benchmark-client,diskless_az={zone.id}
 ```
+
+For more details, see the [Kafka Driver README](driver-kafka/README.md#zone-aware-workers).
 
 #### Workloads
 
@@ -163,15 +149,15 @@ Requirements:
 
 Common build actions:
 
-|             Action              |                 Command                  |
-|---------------------------------|------------------------------------------|
-| Full build and test             | `mvn clean verify`                       |
-| Skip tests                      | `mvn clean verify -DskipTests`           |
-| Skip Jacoco test coverage check | `mvn clean verify -Djacoco.skip`         |
-| Skip Checkstyle standards check | `mvn clean verify -Dcheckstyle.skip`     |
-| Skip Spotless formatting check  | `mvn clean verify -Dspotless.check.skip` |
-| Format code                     | `mvn spotless:apply`                     |
-| Generate license headers        | `mvn license:format`                     |
+|             Action              |                   Command                   |
+|---------------------------------|---------------------------------------------|
+| Full build and test             | `./mvnw clean verify`                       |
+| Skip tests                      | `./mvnw clean verify -DskipTests`           |
+| Skip Jacoco test coverage check | `./mvnw clean verify -Djacoco.skip`         |
+| Skip Checkstyle standards check | `./mvnw clean verify -Dcheckstyle.skip`     |
+| Skip Spotless formatting check  | `./mvnw clean verify -Dspotless.check.skip` |
+| Format code                     | `./mvnw spotless:apply`                     |
+| Generate license headers        | `./mvnw license:format`                     |
 
 ## Docker
 
