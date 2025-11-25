@@ -1,0 +1,52 @@
+- name: Prepare OMB plans with drivers and workloads
+  hosts: worker
+  gather_facts: false
+  vars:
+    clean_plans: false
+  tasks:
+    - name: Gather Kafka service URI
+      shell: "avn service get {{ svc_name }} --json | jq -r .service_uri"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      register: get_service_uri_result
+
+    - name: Set a kafka service URI fact
+      set_fact:
+        kafka_service_uri: "{{ get_service_uri_result.stdout }}"
+
+    - name: Display the kafka service URI
+      debug:
+        var: kafka_service_uri
+
+    - name: Get credentials
+      shell: "avn service user-creds-download {{ svc_name }} --username avnadmin"
+      delegate_to: localhost
+      run_once: true
+      become: false
+
+    - file: path=/opt/benchmark/plans state=absent
+      when: clean_plans
+    - file: path=/opt/benchmark/plans/drivers state=directory
+    - file: path=/opt/benchmark/plans/workloads state=directory
+
+    - name: Publish CA
+      copy:
+        src: ca.pem
+        dest: "/opt/benchmark/plans/drivers/{{ svc_name }}-ca.pem"
+
+    - name: Prepare Service credentials
+      template:
+        src: ./drivers/service.pem
+        dest: "/opt/benchmark/plans/drivers/{{ svc_name }}-service.pem"
+
+    - name: Prepare Drivers
+      template:
+        src: ./drivers/kafka.yaml
+        dest: "/opt/benchmark/plans/drivers/{{ svc_name }}.yaml"
+
+    - name: Upload Workloads
+      copy:
+        src: ./workloads/
+        dest: "/opt/benchmark/plans/workloads/"
+

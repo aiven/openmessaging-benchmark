@@ -1,0 +1,27 @@
+name: 'w-512MiB-3xfanout'
+
+# Duration
+warmupDurationMinutes: 10
+testDurationMinutes: 90
+
+# Topic partition topology
+topics: 2
+partitionsPerTopic: 144
+
+# Throughput
+producerRate: 524288
+
+messageSize: 1024
+useRandomizedPayloads: true
+randomBytesRatio: 0.8
+randomizedPayloadPoolSize: 1000
+
+# Backlog
+consumerBacklogSizeGB: 0
+
+# Clients per topic
+producersPerTopic: 36
+
+subscriptionsPerTopic: 3
+consumerPerSubscription: 36
+
