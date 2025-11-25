@@ -1,0 +1,43 @@
+module "aws" {
+  source = "./terraform/aws"
+  # vars
+  public_key_path = "~/.ssh/kafka_aws.pub"
+  region          = "eu-central-1"
+  ami             = "ami-03fdcc940f72bc806" // Amazon-linux-arm64
+  assume_role     = "arn:aws:iam::123:role/test"
+  resource_prefix = "proj1"
+  resource_tags = {
+    owner              = "user@aiven.io"
+  }
+
+  # Use spot instances or fixed instances
+  use_spot_instance = false
+  # Define instance types for worker nodes and for monitoring one
+  worker_instance_type = "m8g.xlarge"
+  monitoring_instance_type = "m8g.medium"
+  # Define number of instances, by default half are producers and consumers
+  # If you need more consumer instances for larger fanout (using -x on OMB cli)
+  # Then increase to e.g. 9 to have 2/3s as consumers (6) and the rest as producers
+  worker_instance_count = 6
+
+  # spread workers across zones or pin nodes to a single zone
+  # az_override = "eu-central-1a"
+  az_override = ""  # defaults to use all azs
+}
+
+output "client_ssh_host" {
+  value = module.aws.client_ssh_host
+}
+
+output "monitoring_ssh_host" {
+  value = module.aws.monitoring_ssh_host
+}
+
+output "username" {
+  value = module.aws.username
+}
+
+output "public_key_path" {
+  value = module.aws.public_key_path
+}
+
