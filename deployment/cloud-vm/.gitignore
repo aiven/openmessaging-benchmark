@@ -1,0 +1,7 @@
+main.tf
+.terraform*
+terraform.tfstate*
+hosts.yaml
+*.pem
+*.cert
+*.key

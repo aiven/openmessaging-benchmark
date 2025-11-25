@@ -256,6 +256,7 @@
                         <exclude>LICENSE</exclude>
                         <exclude>NOTICE</exclude>
                         <exclude>payload/**</exclude>
+                        <exclude>deployment/**</exclude>
                         <exclude>**/*.pyc</exclude>
                         <exclude>**/.pydevproject</exclude>
                         <exclude>.github/**</exclude>

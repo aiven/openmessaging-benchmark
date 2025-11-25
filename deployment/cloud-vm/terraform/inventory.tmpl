@@ -1,0 +1,20 @@
+all:
+    vars:
+        ansible_ssh_private_key_file: ${public_key_path}
+worker:
+    hosts:
+%{ for index in number_of_workers ~}
+        ${worker_ips[index]}:
+            private_ip: ${worker_private_ips[index]}
+            ansible_user: ${username}
+            cloud_az: ${worker_azs[index]}
+            az: ${worker_custom_azs[index]}
+            ansible_python_interpreter: /usr/bin/python3
+%{ endfor ~}
+
+monitoring:
+    hosts:
+        ${monitoring_ip}:
+            private_ip: ${monitoring_private_ip}
+            ansible_user: ${username}
+            ansible_python_interpreter: /usr/bin/python3

@@ -1,0 +1,44 @@
+global:
+  # How frequently to scrape targets by default.
+  # Default 15s
+  scrape_interval: 30s
+  # How long until a scrape request times out.
+  # Default to 10s.
+  scrape_timeout: 30s
+
+scrape_configs:
+  - job_name: 'jmx'
+    static_configs:
+{% for worker in groups['worker'] %}
+    - targets: ['{{ hostvars[worker].private_ip }}:7000']
+      labels:
+        host: '{{ hostvars[worker].private_ip }}'
+        az: '{{ hostvars[worker].az }}'
+        benchmark: '{{ benchmark_name }}'
+{% endfor %}
+  - job_name: 'omb'
+    static_configs:
+{% for worker in groups['worker'] %}
+    - targets: ['{{ hostvars[worker].private_ip }}:8081']
+      labels:
+        host: '{{ hostvars[worker].private_ip }}'
+        az: '{{ hostvars[worker].az }}'
+        benchmark: '{{ benchmark_name }}'
+{% endfor %}
+  - job_name: 'node'
+    static_configs:
+{% for worker in groups['worker'] %}
+    - targets: ['{{ hostvars[worker].private_ip }}:9100']
+      labels:
+        host: '{{ hostvars[worker].private_ip }}'
+        az: '{{ hostvars[worker].az }}'
+        benchmark: '{{ benchmark_name }}'
+{% endfor %}
+
+{% if prometheus_thanos_export_enabled %}
+remote_write:
+  - url: "https://{{ thanos_host }}:{{ thanos_port}}/api/v1/receive"
+    basic_auth:
+      username: "{{ thanos_username }}"
+      password: "{{ thanos_password }}"
+{% endif %}

@@ -1,0 +1,283 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+- name: Chrony setup
+  hosts: all
+  connection: ssh
+  become: true
+  tasks:
+    - name: Change locale to en_US.utf-8
+      shell: |
+        echo 'LANG=en_US.utf-8
+              LC_ALL=en_US.utf-8' > /etc/environment
+    - name: Set up chronyd
+      template:
+        src: "templates/chrony.conf"
+        dest: "/etc/chrony.conf"
+    - name: Restart chronyd service
+      systemd:
+        state: restarted
+        daemon_reload: yes
+        name: "chronyd"
+
+- name: OS-related host setup
+  hosts: worker
+  connection: ssh
+  become: true
+  vars:
+    kafka_archive_url: https://dlcdn.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
+    reinstall_kafka: false
+  tasks:
+    - name: Set OpenJDK name
+      set_fact:
+        java_package_name: java-17-openjdk-devel
+      when: ansible_distribution != 'Amazon'
+    - name: Override OpenJDK package name on Amazon linux
+      set_fact:
+        java_package_package: java-17-amazon-corretto-devel
+      # The 'Amazon' distribution fact covers both Amazon Linux 2 and 2023
+      when: ansible_distribution == 'Amazon'
+    - name: Install RPM packages
+      yum: pkg={{ item }} state=latest
+      with_items:
+          - wget
+          - sysstat
+          - vim
+          - chrony
+          - tuned
+          - "{{ java_package_package }}"
+
+    - name: Check state of kafka directory
+      stat: path=/opt/kafka
+      register: kafka_dir
+    - name: Cleanup kafka directory if needed
+      file: path=/opt/kafka state=absent
+      when: reinstall_kafka and kafka_dir.stat.exists
+    - name: Re-create kafka directory if needed
+      file: path=/opt/kafka state=directory
+    - name: Download Kafka package
+      unarchive:
+        src: "{{ kafka_archive_url }}"
+        dest: /opt/kafka
+        remote_src: true
+        extra_opts:
+          - "--strip-components=1"
+      when: reinstall_kafka or not kafka_dir.stat.exists
+    
+    - name: Register the system release
+      raw: cat /etc/system-release
+      register: system_release
+      changed_when: no
+      check_mode: no
+    - set_fact:
+        target_is_oracle: "{{ system_release.stdout|trim is match('.*Oracle Linux.*') }}"
+        target_is_redhat: "{{ system_release.stdout|trim is match('.*(Red Hat Enterprise Linux)|(CentOS).*') }}"
+    # check if firewall-cmd command is available if command fails with return code 1 then it is not available
+    - name: Check if firewall-cmd command is available
+      shell: |
+        firewall-cmd --version
+      register: firewall_cmd
+      ignore_errors: yes
+    - set_fact:
+        firewall_cmd_available: "{{ firewall_cmd.rc == 0 }}"
+    - name: Add port 8080 to firewall rules in Oracle and Red Hat Linux
+      shell: |
+        firewall-cmd --permanent --zone=public --add-port 8080/tcp
+      when: target_is_oracle or target_is_redhat and firewall_cmd_available
+    - name: Reload firewall in Oracle and Red Hat Linux
+      shell: |
+        firewall-cmd --reload
+      when: target_is_oracle or target_is_redhat and firewall_cmd_available
+
+- name: Install Node Exporter
+  hosts: worker
+  roles:
+    - prometheus.prometheus.node_exporter
+
+- name: Setup Benchmark worker
+  hosts: worker
+  connection: ssh
+  become: true
+  vars:
+    worker_jvm_mem: 4G
+    cli_jvm_mem: 1G
+    reinstall_omb: false
+    prometheus_jmx_javaagent_port: 7000
+    prometheus_jmx_exporter_archive_url: "https://github.com/prometheus/jmx_exporter/releases/download/1.2.0/jmx_prometheus_javaagent-1.2.0.jar"
+    prometheus_jmx_exporter_sha256: "3a87f7f9df4ff79741d53ccd24aba75176481ececc80f3797dea8413fa3ed2ec"
+  tasks:
+    - set_fact:
+        zoneId: "{{ hostvars[inventory_hostname]['az'] }}"
+
+    - name: Check OMB directory
+      stat: path=/opt/benchmark
+      register: benchmark_dir
+    - name: Delete OMB directory if needed
+      file: path=/opt/benchmark state=absent
+      when: reinstall_omb and benchmark_dir.stat.exists
+    - name: Re-create directory if needed
+      file: path=/opt/benchmark state=directory
+    - name: Copy benchmark code
+      unarchive:
+        src: ../../package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+        dest: /opt/benchmark
+        extra_opts:
+          - "--strip-components=1"
+      when: reinstall_omb or not benchmark_dir.stat.exists
+
+    - name: Download prometheus-jmx-exporter jar
+      get_url:
+        url: "{{ prometheus_jmx_exporter_archive_url }}"
+        dest: /opt/benchmark/jmx_prometheus_javaagent.jar
+        checksum: "sha256:{{ prometheus_jmx_exporter_sha256 }}"
+        mode: '0644'
+    - name: Prepare jmx exporter config
+      template:
+        src: templates/kafka_client.yaml
+        dest: /opt/benchmark/kafka_client.yaml
+
+    - shell: tuned-adm profile latency-performance
+
+    - name: Configure worker memory
+      lineinfile:
+         dest: /opt/benchmark/bin/benchmark-worker
+         regexp: '^JVM_MEM='
+         line: 'JVM_MEM="-Xms{{ worker_jvm_mem }} -Xmx{{ worker_jvm_mem }} -XX:+UseG1GC -XX:MaxGCPauseMillis=10 -XX:+ParallelRefProcEnabled -XX:+UnlockExperimentalVMOptions -XX:+DoEscapeAnalysis -XX:ParallelGCThreads=32 -XX:ConcGCThreads=32 -XX:G1NewSizePercent=50 -XX:+DisableExplicitGC -XX:-ResizePLAB -XX:+PerfDisableSharedMem -XX:+AlwaysPreTouch -XX:-UseBiasedLocking"'
+    - name: Configure cli memory
+      lineinfile:
+         dest: /opt/benchmark/bin/benchmark
+         regexp: '^JVM_MEM='
+         line: 'JVM_MEM="-Xmx{{ cli_jvm_mem }}"'
+    - name: Define worker list file
+      template:
+        src: "templates/workers.yaml"
+        dest: "/opt/benchmark/workers.yaml"
+    - name: Install benchmark systemd service
+      template:
+        src: "templates/benchmark-worker.service"
+        dest: "/etc/systemd/system/benchmark-worker.service"
+    - name: Restart OMB worker service
+      systemd:
+        state: restarted
+        daemon_reload: yes
+        name: "benchmark-worker"
+
+# Monitoring setup
+- name: Monitoring setup
+  hosts: monitoring
+  connection: ssh
+  become: true
+  vars:
+    prometheus_thanos_export_enabled: false
+    # Add the following configs to export to thanos
+    thanos_host:
+    thanos_port:
+    thanos_username:
+    thanos_password:
+  tasks:
+    - name: Set dynamic benchmark_name using local 'date' command
+      ansible.builtin.set_fact:
+        benchmark_name: "omb-{{ lookup('pipe', 'date +%Y%m%d%H%M') }}"
+
+    - yum:
+        name:
+          - dnf-plugins-core
+        state: present
+    - name: add repo
+      shell: dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+      when: ansible_distribution != 'Amazon'
+
+    - name: Install Docker CE
+      yum:
+        name:
+          - docker-ce
+          - docker-ce-cli 
+          - containerd.io 
+          - docker-buildx-plugin 
+          - docker-compose-plugin
+        state: present
+      when: ansible_distribution != 'Amazon'
+
+    - name: Install Docker Compose on Amazon Linux
+      block:
+        - name: Install Docker CE
+          yum:
+            name: docker
+            state: present
+        - name: Prep directory
+          file:
+            path: "$HOME/.docker/cli-plugins"
+            state: directory
+            mode: '0755'
+        - name: Download Docker Compose
+          get_url:
+            url: "https://github.com/docker/compose/releases/latest/download/docker-compose-{{ ansible_system | lower }}-{{ ansible_architecture }}"
+            dest: "$HOME/.docker/cli-plugins/docker-compose"
+            mode: '0755'  # Make it executable
+      when: ansible_distribution == 'Amazon'
+
+    - name: Start Docker service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Add user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Create project directory
+      file:
+        path: /opt/kafka-monitoring
+        state: directory
+        mode: '0755'
+
+    - name: Copy docker compose file
+      copy:
+        src: ./monitoring/docker-compose.yaml
+        dest: /opt/kafka-monitoring/docker-compose.yaml
+        mode: '0644'
+    - copy:
+        src: ./monitoring/grafana/
+        dest: /opt/kafka-monitoring/grafana/
+
+    - name: Template prometheus.yaml
+      template:
+        src: "templates/prometheus.yaml"
+        dest: "/opt/kafka-monitoring/prometheus.yaml"
+      notify: Restart monitoring services
+
+    - name: Deploy with docker compose
+      community.docker.docker_compose_v2:
+        project_src: /opt/kafka-monitoring
+        state: present
+  handlers:
+    - name: Restart monitoring services
+      community.docker.docker_compose_v2:
+        project_src: /opt/kafka-monitoring
+        state: restarted
+        pull: always
+
+- name:  Hosts addresses
+  hosts: localhost
+  become: false
+  tasks:
+    - debug:
+        msg: "Benchmark workers {{ item }}"
+      with_items: "{{ groups['worker'] }}"
+    - debug:
+        msg: "Benchmark monitoring {{ item }}"
+      with_items: "{{ groups['monitoring'] }}"
