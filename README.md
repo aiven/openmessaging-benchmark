@@ -14,6 +14,18 @@ The OpenMessaging Benchmark Framework contains two components - the driver, and 
 * Driver - The main “driver” is responsible to assign the tasks, creating the benchmark topic, creating the consumers & producers, etc. The benchmark executor.
 * Worker - A benchmark worker that listens to tasks to perform them. A worker ensemble communicates over HTTP (defaults to port 8080).
 
+### Deployment
+
+You can deploy the driver and workers on separate machines or on the same machine for testing purposes.
+For production workloads, it is recommended to deploy workers on separate machines close to the messaging system cluster.
+
+This fork is currently focused on using cloud VMs to deploy the workers and run the benchmarks.
+You can find Terraform and Ansible scripts to deploy OMB workers in various cloud providers under the [deployment/cloud-vm](deployment/cloud-vm) directory.
+For more details, see the [deployment/cloud-vm/README.md](deployment/cloud-vm/README.md).
+
+The fork also includes Helm charts to deploy OMB workers on Kubernetes clusters.
+You can find the Helm charts under the [deployment/kubernetes](deployment/kubernetes) directory.
+
 ### Configuration
 
 #### Drivers
