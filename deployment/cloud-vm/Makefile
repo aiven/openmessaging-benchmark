@@ -41,8 +41,6 @@ check_workers:
 
 restart_worker:
 	ansible -i $(TF_DIR)/hosts.yaml \
-    	-m shell -a "rm -rf /opt/benchmark/benchmark-worker.log" worker
-	ansible -i $(TF_DIR)/hosts.yaml \
     	-m shell -a "systemctl restart benchmark-worker" worker
 
 stop_firewall:
@@ -77,6 +75,10 @@ download_results:
 download_logs:
 	ansible -i $(TF_DIR)/hosts.yaml \
     -m fetch -a "src=/opt/benchmark/benchmark-worker.log dest=./benchmark-worker_{{ inventory_hostname }}.log flat=yes" worker
+
+clean_logs:
+	ansible -i $(TF_DIR)/hosts.yaml \
+    -m shell -a "rm -rf /opt/benchmark/benchmark-worker.log" worker
 
 output:
 	cd $(TF_DIR) && \
