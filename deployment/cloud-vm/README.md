@@ -117,7 +117,16 @@ make open_prometheus
 
 ### Preparing OMB plans
 
-Adapt the OMB driver template at [`drivers/kafka.yaml`](./drivers/kafka.yaml) to your needs, e.g., set the topic, and client configurations.
+You can create multiple driver configurations in the [`drivers/`](./drivers) directory. Each YAML file in this directory will be processed as a separate driver configuration.
+
+For example:
+- `drivers/default.yaml` - Basic Kafka configuration
+- `drivers/diskless-low-throughput.yaml` - Diskless configuration for low throughput
+- `drivers/diskless-high-throughput.yaml` - Diskless configuration optimized for high throughput
+
+When uploaded, each driver template will be named with the pattern `{svc_name}-{template_name}.yaml` on the worker nodes. For instance, if your service is named `my-kafka` and you have `drivers/diskless-high-throughput.yaml`, it will be uploaded as `my-kafka-diskless-high-throughput.yaml`.
+
+Adapt the OMB driver templates to your needs, e.g., set the topic and client configurations.
 
 The playbook will use your `avn` CLI to gather the necessary connection information for Kafka clusters.
 
@@ -126,7 +135,7 @@ Then, validate and add any missing workload plans to the [`./workloads`](./workl
 Once all is set locally, run the Ansible playbook to upload the plans to OMB workers:
 
 ```shell
-ansible-playbook -i hosts.yaml upload_plans.yaml
+ansible-playbook -i hosts.yaml upload.yaml -e svc_name=<your-service-name>
 ```
 
 or with `make`:
@@ -158,9 +167,14 @@ Once connected, you can start OMB workloads with:
 ```shell
 sudo -i
 cd /opt/benchmark
-./bin/benchmark --drivers plans/drivers/$SVC_NAME.yaml --workloads workloads/$WORKLOAD_NAME.yaml
+# List available drivers
+ls plans/drivers/
+# Run with a specific driver configuration
+./bin/benchmark --drivers plans/drivers/$SVC_NAME-diskless-high-throughput.yaml --workloads workloads/$WORKLOAD_NAME.yaml
+# or with the default driver
+./bin/benchmark --drivers plans/drivers/$SVC_NAME-default.yaml --workloads workloads/$WORKLOAD_NAME.yaml
 # optionally add -x to increase the number of consumer nodes to 2/3 of the available nodes
-./bin/benchmark --drivers plans/drivers/$SVC_NAME.yaml --workloads workloads/$WORKLOAD_NAME.yaml -x
+./bin/benchmark --drivers plans/drivers/$SVC_NAME-diskless-high-throughput.yaml --workloads workloads/$WORKLOAD_NAME.yaml -x
 ```
 
 ### Explore the results
