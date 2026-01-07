@@ -14,10 +14,12 @@
     - name: Set a kafka service URI fact
       set_fact:
         kafka_service_uri: "{{ get_service_uri_result.stdout }}"
+      run_once: true
 
     - name: Display the kafka service URI
       debug:
         var: kafka_service_uri
+      run_once: true
 
     - name: Get credentials
       shell: "avn service user-creds-download {{ svc_name }} --username avnadmin"
@@ -40,10 +42,22 @@
         src: ./drivers/service.pem
         dest: "/opt/benchmark/plans/drivers/{{ svc_name }}-service.pem"
 
+    - name: Find driver templates
+      find:
+        paths: ./drivers
+        patterns: "*.yaml"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      register: driver_templates
+
     - name: Prepare Drivers
       template:
-        src: ./drivers/kafka.yaml
-        dest: "/opt/benchmark/plans/drivers/{{ svc_name }}.yaml"
+        src: "{{ item.path }}"
+        dest: "/opt/benchmark/plans/drivers/{{ svc_name }}-{{ item.path | basename }}"
+      loop: "{{ driver_templates.files }}"
+      loop_control:
+        label: "{{ item.path | basename }} -> {{ svc_name }}-{{ item.path | basename }}"
 
     - name: Upload Workloads
       copy:

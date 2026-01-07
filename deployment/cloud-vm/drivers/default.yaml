@@ -11,11 +11,9 @@ commonConfig: |
   ssl.truststore.type=PEM
   ssl.truststore.location=/opt/benchmark/plans/drivers/{{ svc_name }}-ca.pem
   # add more common client configs here
-  
 producerConfig: |
-  linger.ms=10
   # add more producer configs here
-  
 consumerConfig: |
   auto.offset.reset=earliest
   # add more consumer configs here
+
