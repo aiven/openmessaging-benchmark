@@ -47,6 +47,18 @@ class WorkloadGenerator {
         workload.testDurationMinutes = template.testDurationMinutes;
         workload.warmupDurationMinutes = template.warmupDurationMinutes;
         workload.useRandomizedPayloads = template.useRandomizedPayloads;
+        workload.producerInitialRate = template.producerInitialRate;
+        if (!template.producerRateTimeline.isEmpty()) {
+            List<Workload.RatePoint> points = new ArrayList<>();
+            for (WorkloadSetTemplate.RatePoint p : template.producerRateTimeline) {
+                Workload.RatePoint x = new Workload.RatePoint();
+                x.timeSeconds = p.timeSeconds;
+                x.rate = p.rate;
+                points.add(x);
+            }
+            workload.producerRateTimeline = points;
+        }
+        workload.producerRateTimelineIntervalSeconds = template.producerRateTimelineIntervalSeconds;
         for (int t : template.topics) {
             for (int pa : template.partitionsPerTopic) {
                 for (int ms : template.messageSize) {
@@ -84,6 +96,9 @@ class WorkloadGenerator {
         copy.consumerBacklogSizeGB = workload.consumerBacklogSizeGB;
         copy.testDurationMinutes = workload.testDurationMinutes;
         copy.warmupDurationMinutes = workload.warmupDurationMinutes;
+        copy.producerInitialRate = workload.producerInitialRate;
+        copy.producerRateTimeline = workload.producerRateTimeline;
+        copy.producerRateTimelineIntervalSeconds = workload.producerRateTimelineIntervalSeconds;
         copy.topics = workload.topics;
         copy.partitionsPerTopic = workload.partitionsPerTopic;
         copy.messageSize = workload.messageSize;
