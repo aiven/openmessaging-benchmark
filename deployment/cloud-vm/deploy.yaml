@@ -56,6 +56,7 @@
           - vim
           - chrony
           - tuned
+          - ethtool
           - "{{ java_package_package }}"
 
     - name: Check state of kafka directory
@@ -103,7 +104,10 @@
 - name: Install Node Exporter
   hosts: worker
   roles:
-    - prometheus.prometheus.node_exporter
+    - role: prometheus.prometheus.node_exporter
+      vars:
+        node_exporter_enabled_collectors:
+          - ethtool
 
 - name: Setup Benchmark worker
   hosts: worker
@@ -253,6 +257,9 @@
     - copy:
         src: ./monitoring/grafana/
         dest: /opt/kafka-monitoring/grafana/
+    - copy:
+        src: ./monitoring/prometheus-rules/
+        dest: /opt/kafka-monitoring/prometheus-rules/
 
     - name: Template prometheus.yaml
       template:

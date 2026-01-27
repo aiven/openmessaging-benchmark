@@ -1,0 +1,44 @@
+groups:
+  - name: ena_network_limits
+    interval: 30s
+    rules:
+      # Bandwidth drop ratios
+      - record: node:ena_bw_in_drop_ratio
+        expr: |
+          rate(node_ethtool_bw_in_allowance_exceeded[5m])
+          / on(instance, device) (rate(node_network_receive_bytes_total[5m]) + 1)
+
+      - record: node:ena_bw_out_drop_ratio
+        expr: |
+          rate(node_ethtool_bw_out_allowance_exceeded[5m])
+          / on(instance, device) (rate(node_network_transmit_bytes_total[5m]) + 1)
+
+      # PPS drop ratio
+      - record: node:ena_pps_drop_ratio
+        expr: |
+          rate(node_ethtool_pps_allowance_exceeded[5m])
+          / on(instance, device) (
+            rate(node_network_receive_packets_total[5m])
+            + rate(node_network_transmit_packets_total[5m])
+            + 1
+          )
+
+      # Conntrack drop ratio (relative to total packets)
+      - record: node:ena_conntrack_drop_ratio
+        expr: |
+          rate(node_ethtool_conntrack_allowance_exceeded[5m])
+          / on(instance, device) (
+            rate(node_network_receive_packets_total[5m])
+            + rate(node_network_transmit_packets_total[5m])
+            + 1
+          )
+
+      # Link local drop ratio
+      - record: node:ena_linklocal_drop_ratio
+        expr: |
+          rate(node_ethtool_linklocal_allowance_exceeded[5m])
+          / on(instance, device) (
+            rate(node_network_receive_packets_total[5m])
+            + rate(node_network_transmit_packets_total[5m])
+            + 1
+          )
