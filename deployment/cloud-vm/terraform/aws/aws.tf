@@ -262,7 +262,7 @@ locals {
 }
 
 resource "local_file" "inventory" {
-  content = templatefile("./terraform/inventory.tmpl",
+  content = templatefile("${path.module}/../inventory.tmpl",
     {
       number_of_workers  = range(var.worker_instance_count),
       worker_ips         = var.use_spot_instance ? aws_spot_instance_request.worker.*.public_ip : aws_instance.worker.*.public_ip,
