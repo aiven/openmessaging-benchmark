@@ -1,0 +1,30 @@
+name: {{ svc_name }}
+driverClass: io.openmessaging.benchmark.driver.kafka.KafkaBenchmarkDriver
+topicConfig: |
+  # add topic configs here
+  remote.storage.enable=true
+replicationFactor: 3
+commonConfig: |
+  bootstrap.servers={{ kafka_service_uri }}
+  security.protocol=SSL
+  ssl.keystore.type=PEM
+  ssl.keystore.location=/opt/benchmark/plans/drivers/{{ svc_name }}-service.pem
+  ssl.truststore.type=PEM
+  ssl.truststore.location=/opt/benchmark/plans/drivers/{{ svc_name }}-ca.pem
+  # add more common client configs here
+  client.id=omb
+  metadata.recovery.strategy=rebootstrap
+  metadata.max.age.ms=60000
+producerConfig: |
+  linger.ms=100
+  # add more producer configs here
+  batch.size=1000000
+  max.request.size=4000000
+consumerConfig: |
+  auto.offset.reset=earliest
+  # add more consumer configs here
+  max.partition.fetch.bytes=8000000
+  fetch.max.bytes=64000000
+  fetch.max.wait.ms=500
+  fetch.min.bytes=1000000
+
