@@ -13,14 +13,23 @@
  */
 package io.openmessaging.benchmark.worker.commands;
 
+import java.util.List;
+
 public class TopicsInfo {
     public int numberOfTopics;
     public int numberOfPartitionsPerTopic;
+    public List<String> topicNames;
 
     public TopicsInfo() {}
 
     public TopicsInfo(int numberOfTopics, int numberOfPartitionsPerTopic) {
         this.numberOfTopics = numberOfTopics;
         this.numberOfPartitionsPerTopic = numberOfPartitionsPerTopic;
+    }
+
+    public TopicsInfo(int numberOfTopics, int numberOfPartitionsPerTopic, List<String> topicNames) {
+        this.numberOfTopics = numberOfTopics;
+        this.numberOfPartitionsPerTopic = numberOfPartitionsPerTopic;
+        this.topicNames = topicNames;
     }
 }

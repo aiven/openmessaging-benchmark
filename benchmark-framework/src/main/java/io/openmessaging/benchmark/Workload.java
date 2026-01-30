@@ -13,14 +13,21 @@
  */
 package io.openmessaging.benchmark;
 
-
 import io.openmessaging.benchmark.utils.distributor.KeyDistributorType;
+import java.util.List;
 
 public class Workload {
     public String name;
 
     /** Number of topics to create in the test. */
     public int topics;
+
+    /**
+     * Optional list of topic names to use. If provided, these topics will be reused if they exist.
+     * The list size should match the 'topics' count. If not provided, random topic names will be
+     * generated as before.
+     */
+    public List<String> topicNames;
 
     /** Number of partitions each topic will contain. */
     public int partitionsPerTopic;
