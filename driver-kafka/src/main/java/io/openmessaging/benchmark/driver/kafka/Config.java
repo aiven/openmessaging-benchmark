@@ -23,4 +23,7 @@ public class Config {
     public String producerConfig;
 
     public String consumerConfig;
+
+    /** When true, consumers will seek to end after subscription, skipping any existing backlog. */
+    public boolean resetToLatest = false;
 }

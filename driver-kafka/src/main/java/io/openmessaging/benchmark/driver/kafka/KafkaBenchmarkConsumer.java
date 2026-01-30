@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -47,7 +48,15 @@ public class KafkaBenchmarkConsumer implements BenchmarkConsumer {
             KafkaConsumer<String, byte[]> consumer,
             Properties consumerConfig,
             ConsumerCallback callback) {
-        this(consumer, consumerConfig, callback, 100L);
+        this(consumer, consumerConfig, callback, 100L, false);
+    }
+
+    public KafkaBenchmarkConsumer(
+            KafkaConsumer<String, byte[]> consumer,
+            Properties consumerConfig,
+            ConsumerCallback callback,
+            boolean resetToLatest) {
+        this(consumer, consumerConfig, callback, 100L, resetToLatest);
     }
 
     public KafkaBenchmarkConsumer(
@@ -55,12 +64,43 @@ public class KafkaBenchmarkConsumer implements BenchmarkConsumer {
             Properties consumerConfig,
             ConsumerCallback callback,
             long pollTimeoutMs) {
+        this(consumer, consumerConfig, callback, pollTimeoutMs, false);
+    }
+
+    public KafkaBenchmarkConsumer(
+            KafkaConsumer<String, byte[]> consumer,
+            Properties consumerConfig,
+            ConsumerCallback callback,
+            long pollTimeoutMs,
+            boolean resetToLatest) {
         this.consumer = consumer;
         this.executor = Executors.newSingleThreadExecutor();
         this.autoCommit =
                 Boolean.valueOf(
                         (String)
                                 consumerConfig.getOrDefault(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false"));
+
+        // If resetToLatest, wait for assignment and seek to end BEFORE starting the consumer thread.
+        // This ensures the consumer is truly ready when createConsumer() returns to the coordinator.
+        if (resetToLatest) {
+            // Poll until we get partition assignment
+            Set<TopicPartition> assignment = consumer.assignment();
+            while (assignment.isEmpty()) {
+                consumer.poll(Duration.ofMillis(pollTimeoutMs));
+                assignment = consumer.assignment();
+            }
+            // Pause partitions to prevent fetching while we seek
+            consumer.pause(assignment);
+            // Get end offsets and seek to them
+            Map<TopicPartition, Long> endOffsets = consumer.endOffsets(assignment);
+            for (Map.Entry<TopicPartition, Long> entry : endOffsets.entrySet()) {
+                log.info("Seeking {} to end offset {}", entry.getKey(), entry.getValue());
+                consumer.seek(entry.getKey(), entry.getValue());
+            }
+            // Resume fetching from the new positions
+            consumer.resume(assignment);
+        }
+
         this.consumerTask =
                 this.executor.submit(
                         () -> {

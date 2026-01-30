@@ -42,8 +42,12 @@ import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class KafkaBenchmarkDriver implements BenchmarkDriver {
+
+    private static final Logger log = LoggerFactory.getLogger(KafkaBenchmarkDriver.class);
 
     private static final String ZONE_ID_CONFIG = "zone.id";
     private static final String ZONE_ID_TEMPLATE = "{zone.id}";
@@ -53,6 +57,8 @@ public class KafkaBenchmarkDriver implements BenchmarkDriver {
 
     private List<BenchmarkProducer> producers = Collections.synchronizedList(new ArrayList<>());
     private List<BenchmarkConsumer> consumers = Collections.synchronizedList(new ArrayList<>());
+
+    private volatile boolean resetToLatestLogged = false;
 
     // Visible for testing
     Properties topicProperties;
@@ -146,6 +152,11 @@ public class KafkaBenchmarkDriver implements BenchmarkDriver {
     @Override
     public CompletableFuture<BenchmarkConsumer> createConsumer(
             String topic, String subscriptionName, ConsumerCallback consumerCallback) {
+        if (config.resetToLatest && !resetToLatestLogged) {
+            resetToLatestLogged = true;
+            log.info("resetToLatest is enabled: consumers will seek to end of topic before consuming. "
+                    + "This may take longer as each consumer waits for partition assignment.");
+        }
         Properties properties = new Properties();
         consumerProperties.forEach((key, value) -> properties.put(key, value));
         properties.put(ConsumerConfig.GROUP_ID_CONFIG, subscriptionName);
@@ -153,7 +164,7 @@ public class KafkaBenchmarkDriver implements BenchmarkDriver {
         try {
             consumer.subscribe(Arrays.asList(topic));
             return CompletableFuture.completedFuture(
-                    new KafkaBenchmarkConsumer(consumer, consumerProperties, consumerCallback));
+                    new KafkaBenchmarkConsumer(consumer, consumerProperties, consumerCallback, config.resetToLatest));
         } catch (Throwable t) {
             consumer.close();
             CompletableFuture<BenchmarkConsumer> future = new CompletableFuture<>();
