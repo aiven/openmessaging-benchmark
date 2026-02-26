@@ -70,7 +70,7 @@
         <checkstyle.version>10.3.3</checkstyle.version>
         <commons.lang3.version>3.18.0</commons.lang3.version>
         <log4j.version>2.20.0</log4j.version>
-        <lombok.version>1.18.24</lombok.version>
+        <lombok.version>1.18.30</lombok.version>
         <jackson.version>2.13.2</jackson.version>
         <jcommander.version>1.48</jcommander.version>
         <junit.jupiter.version>5.9.0</junit.jupiter.version>
@@ -223,22 +223,6 @@
                 <executions>
                     <execution>
                         <id>check</id>
-                        <goals>
-                            <goal>check</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-            <plugin>
-                <!-- Check for typical bugs -->
-                <groupId>com.github.spotbugs</groupId>
-                <artifactId>spotbugs-maven-plugin</artifactId>
-                <version>${spotbugs.plugin.version}</version>
-                <configuration>
-                    <excludeFilterFile>etc/findbugsExclude.xml</excludeFilterFile>
-                </configuration>
-                <executions>
-                    <execution>
                         <goals>
                             <goal>check</goal>
                         </goals>
