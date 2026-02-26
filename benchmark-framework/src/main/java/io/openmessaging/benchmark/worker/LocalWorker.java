@@ -42,6 +42,7 @@ import io.openmessaging.benchmark.worker.commands.TopicsInfo;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +60,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class LocalWorker implements Worker, ConsumerCallback {
+    private static final byte[] PROBE_PAYLOAD =
+        "{\"probe\":true,\"type\":\"benchmark-probe-message\"}".getBytes(StandardCharsets.UTF_8);
 
     private BenchmarkDriver benchmarkDriver = null;
     private final List<BenchmarkProducer> producers = new ArrayList<>();
@@ -190,7 +193,7 @@ public class LocalWorker implements Worker, ConsumerCallback {
     public void probeProducers() throws IOException {
         producers.forEach(
                 producer ->
-                        producer.sendAsync(Optional.of("key"), new byte[10]).thenRun(stats::recordMessageSent));
+                        producer.sendAsync(Optional.of("probe"), PROBE_PAYLOAD).thenRun(stats::recordMessageSent));
     }
 
     private void submitProducersToExecutor(
