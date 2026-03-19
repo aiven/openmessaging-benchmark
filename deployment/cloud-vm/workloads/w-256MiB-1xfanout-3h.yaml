@@ -6,10 +6,12 @@ testDurationMinutes: 180
 
 # Topic partition topology
 topics: 1
+topicNames:
+  - test-topic
 partitionsPerTopic: 144
 
 # Throughput
-producerRate: 262144
+producerRate: 131072
 
 messageSize: 1024
 useRandomizedPayloads: true

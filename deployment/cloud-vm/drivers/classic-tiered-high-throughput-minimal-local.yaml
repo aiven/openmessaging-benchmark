@@ -2,9 +2,10 @@ name: {{ svc_name }}
 driverClass: io.openmessaging.benchmark.driver.kafka.KafkaBenchmarkDriver
 topicConfig: |
   # add topic configs here
-  diskless.enable=true
+  remote.storage.enable=true
   retention.ms=604800000
-replicationFactor: 1  # required by diskless topics
+  local.retention.ms=300000
+replicationFactor: 3
 commonConfig: |
   bootstrap.servers={{ kafka_service_uri }}
   security.protocol=SSL
@@ -13,7 +14,7 @@ commonConfig: |
   ssl.truststore.type=PEM
   ssl.truststore.location=/opt/benchmark/plans/drivers/{{ svc_name }}-ca.pem
   # add more common client configs here
-  client.id=omb,diskless_az={zone.id}
+  client.id=omb
   metadata.recovery.strategy=rebootstrap
   metadata.max.age.ms=60000
 producerConfig: |
@@ -27,4 +28,6 @@ consumerConfig: |
   max.partition.fetch.bytes=8000000
   fetch.max.bytes=64000000
   fetch.max.wait.ms=500
-  fetch.min.bytes=4000000
+  fetch.min.bytes=1000000
+
+

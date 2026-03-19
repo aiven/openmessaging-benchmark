@@ -3,6 +3,7 @@ driverClass: io.openmessaging.benchmark.driver.kafka.KafkaBenchmarkDriver
 topicConfig: |
   # add topic configs here
   remote.storage.enable=true
+  retention.ms=604800000
 replicationFactor: 3
 commonConfig: |
   bootstrap.servers={{ kafka_service_uri }}

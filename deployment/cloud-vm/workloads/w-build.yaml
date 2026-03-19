@@ -1,15 +1,17 @@
-name: 'w-256MiB-1xfanout'
+name: 'w-backlog'
 
 # Duration
-warmupDurationMinutes: 5
-testDurationMinutes: 90
+warmupDurationMinutes: 1
+testDurationMinutes: 180
 
 # Topic partition topology
 topics: 1
+topicNames:
+  - test-topic-0000000-A5tEZ1U
 partitionsPerTopic: 144
 
 # Throughput
-producerRate: 262144
+producerRate: 400000
 
 messageSize: 1024
 useRandomizedPayloads: true
@@ -17,10 +19,10 @@ randomBytesRatio: 0.8
 randomizedPayloadPoolSize: 1000
 
 # Backlog
-consumerBacklogSizeGB: 0
+consumerBacklogSizeGB: 3000
 
 # Clients per topic
-producersPerTopic: 36
+producersPerTopic: 144
 
 subscriptionsPerTopic: 1
 consumerPerSubscription: 36
