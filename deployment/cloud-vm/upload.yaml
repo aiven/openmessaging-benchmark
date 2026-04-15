@@ -60,7 +60,8 @@
         label: "{{ item.path | basename }} -> {{ svc_name }}-{{ item.path | basename }}"
 
     - name: Upload Workloads
-      copy:
+      synchronize:
         src: ./workloads/
-        dest: "/opt/benchmark/plans/workloads/"
+        dest: /opt/benchmark/plans/workloads/
+        delete: yes
 
