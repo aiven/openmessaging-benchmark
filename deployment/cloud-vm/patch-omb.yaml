@@ -1,0 +1,60 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# Playbook to quickly patch OMB on remote workers without full deploy
+# Usage: ansible-playbook patch-omb.yaml -i <inventory>
+#
+# Prerequisites: Build the package first with:
+#   mvn clean package -DskipTests -Dlicense.skip=true
+
+- name: Patch OMB on workers
+  hosts: worker
+  connection: ssh
+  become: true
+  tasks:
+    - name: Stop benchmark worker service
+      systemd:
+        state: stopped
+        name: "benchmark-worker"
+
+    - name: Remove old benchmark lib directory
+      file:
+        path: /opt/benchmark/lib
+        state: absent
+
+    - name: Copy new benchmark code
+      unarchive:
+        src: ../../package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+        dest: /opt/benchmark
+        extra_opts:
+          - "--strip-components=1"
+
+    - name: Start benchmark worker service
+      systemd:
+        state: started
+        name: "benchmark-worker"
+
+- name: Verify workers are running
+  hosts: worker
+  connection: ssh
+  become: true
+  tasks:
+    - name: Check benchmark worker status
+      systemd:
+        name: "benchmark-worker"
+      register: worker_status
+
+    - name: Display worker status
+      debug:
+        msg: "Worker on {{ inventory_hostname }}: {{ worker_status.status.ActiveState }}"
