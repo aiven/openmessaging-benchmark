@@ -23,6 +23,10 @@ module "aws" {
   # spread workers across zones or pin nodes to a single zone
   # az_override = "eu-central-1a"
   az_override = ""  # defaults to use all azs
+
+  # restrict to specific availability zone IDs (empty = all)
+  # allowed_zone_ids = ["use1-az1", "use1-az2", "use1-az5"]
+  allowed_zone_ids = []
 }
 
 output "client_ssh_host" {
