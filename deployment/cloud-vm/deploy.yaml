@@ -177,6 +177,79 @@
         daemon_reload: yes
         name: "benchmark-worker"
 
+- name: Setup Benchmark tools on monitoring node
+  hosts: monitoring
+  connection: ssh
+  become: true
+  vars:
+    kafka_archive_url: https://dlcdn.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
+    reinstall_kafka: false
+    reinstall_omb: false
+  tasks:
+    - name: Install Java
+      block:
+        - name: Set OpenJDK name
+          set_fact:
+            java_package_name: java-17-openjdk-devel
+          when: ansible_distribution != 'Amazon'
+        - name: Override OpenJDK package name on Amazon linux
+          set_fact:
+            java_package_name: java-17-amazon-corretto-devel
+          when: ansible_distribution == 'Amazon'
+        - name: Install Java
+          yum: pkg={{ java_package_name }} state=latest
+
+    - name: Install Python 3
+      yum: pkg=python3 state=latest
+
+    - name: Install Kafka CLI tools
+      block:
+        - name: Check state of kafka directory
+          stat: path=/opt/kafka
+          register: kafka_dir
+        - name: Cleanup kafka directory if needed
+          file: path=/opt/kafka state=absent
+          when: reinstall_kafka and kafka_dir.stat.exists
+        - name: Re-create kafka directory if needed
+          file: path=/opt/kafka state=directory
+        - name: Download Kafka package
+          unarchive:
+            src: "{{ kafka_archive_url }}"
+            dest: /opt/kafka
+            remote_src: true
+            extra_opts:
+              - "--strip-components=1"
+          when: reinstall_kafka or not kafka_dir.stat.exists
+
+    - name: Install OMB
+      block:
+        - name: Check OMB directory
+          stat: path=/opt/benchmark
+          register: benchmark_dir
+        - name: Delete OMB directory if needed
+          file: path=/opt/benchmark state=absent
+          when: reinstall_omb and benchmark_dir.stat.exists
+        - name: Re-create directory if needed
+          file: path=/opt/benchmark state=directory
+        - name: Copy benchmark code
+          unarchive:
+            src: ../../package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+            dest: /opt/benchmark
+            extra_opts:
+              - "--strip-components=1"
+          when: reinstall_omb or not benchmark_dir.stat.exists
+
+    - name: Deploy orchestrator
+      copy:
+        src: ../../tools/lag-recovery-benchmark/orchestrator.py
+        dest: /opt/benchmark/orchestrator.py
+        mode: '0755'
+
+    - name: Define worker list file
+      template:
+        src: "templates/workers.yaml"
+        dest: "/opt/benchmark/workers.yaml"
+
 # Monitoring setup
 - name: Monitoring setup
   hosts: monitoring
