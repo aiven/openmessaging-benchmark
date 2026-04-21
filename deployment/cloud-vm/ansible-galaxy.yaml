@@ -1,3 +1,4 @@
 collections:
   - name: prometheus.prometheus
   - name: ansible.posix
+  - name: community.general
