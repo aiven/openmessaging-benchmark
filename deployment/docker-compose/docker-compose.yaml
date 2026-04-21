@@ -1,0 +1,76 @@
+services:
+  kafka:
+    image: apache/kafka:3.9.0
+    hostname: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+
+  # Producer worker
+  worker-producer:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      args:
+        BENCHMARK_TARBALL: package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+    command: /benchmark/bin/benchmark-worker --port 8080
+    ports:
+      - "8080:8080"
+    environment:
+      HEAP_OPTS: "-Xms1G -Xmx1G"
+    depends_on:
+      - kafka
+
+  # Consumer Group A worker
+  worker-consumer-a:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      args:
+        BENCHMARK_TARBALL: package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+    command: /benchmark/bin/benchmark-worker --port 8080
+    ports:
+      - "8081:8080"
+    environment:
+      HEAP_OPTS: "-Xms1G -Xmx1G"
+    depends_on:
+      - kafka
+
+  # Consumer Group B worker
+  worker-consumer-b:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      args:
+        BENCHMARK_TARBALL: package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+    command: /benchmark/bin/benchmark-worker --port 8080
+    ports:
+      - "8082:8080"
+    environment:
+      HEAP_OPTS: "-Xms1G -Xmx1G"
+    depends_on:
+      - kafka
+
+  # Consumer Group C worker (for L3+)
+  worker-consumer-c:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile
+      args:
+        BENCHMARK_TARBALL: package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+    command: /benchmark/bin/benchmark-worker --port 8080
+    ports:
+      - "8083:8080"
+    environment:
+      HEAP_OPTS: "-Xms1G -Xmx1G"
+    depends_on:
+      - kafka

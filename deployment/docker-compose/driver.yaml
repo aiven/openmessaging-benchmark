@@ -1,0 +1,24 @@
+driverClass: io.openmessaging.benchmark.driver.kafka.KafkaBenchmarkDriver
+
+replicationFactor: 1
+
+topicConfig: |
+  min.insync.replicas=1
+
+commonConfig: |
+  bootstrap.servers=kafka:9092
+
+producerConfig: |
+  acks=all
+  linger.ms=1
+  batch.size=131072
+
+consumerConfig: |
+  auto.offset.reset=earliest
+  enable.auto.commit=true
+  auto.commit.interval.ms=5000
+  fetch.min.bytes=1
+  fetch.max.wait.ms=500
+  max.partition.fetch.bytes=10485760
+
+resetToLatest: false
