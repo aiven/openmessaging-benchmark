@@ -50,9 +50,12 @@ stop_firewall:
 IP ?=
 
 connect:
+	ssh -i $(shell cd $(TF_DIR); terraform output -raw public_key_path) $(shell cd $(TF_DIR); terraform output -raw username)@$(shell cd $(TF_DIR); terraform output -raw monitoring_ssh_host)
+
+connect_worker:
 	ssh -i $(shell cd $(TF_DIR); terraform output -raw public_key_path) $(shell cd $(TF_DIR); terraform output -raw username)@$(shell if [ -n "$$IP" ]; then echo "$$IP"; else cd $(TF_DIR); terraform output -raw worker_ssh_host; fi)
 
-SVC_NAME=kafka
+SVC_NAME=
 
 upload_plans:
 	ansible-playbook -i $(TF_DIR)/hosts.yaml -e "svc_name=$(SVC_NAME)" $(ANSIBLE_ARGS) upload.yaml
@@ -95,9 +98,6 @@ charts: .venv
 	for f in $(shell ls $(RESULT_DIR)/*.json); do \
 		.venv/bin/python3 ../../bin/create_charts.py $$f; \
 	done
-
-connect_monitoring:
-	ssh -i $(shell cd $(TF_DIR); terraform output -raw public_key_path) $(shell cd $(TF_DIR); terraform output -raw username)@$(shell cd $(TF_DIR); terraform output -raw monitoring_ssh_host)
 
 open_prometheus:
 	open http://$(shell cd $(TF_DIR); terraform output -raw monitoring_ssh_host):9090
