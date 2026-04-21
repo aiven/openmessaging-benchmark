@@ -26,6 +26,10 @@ For more details, see the [deployment/cloud-vm/README.md](deployment/cloud-vm/RE
 The fork also includes Helm charts to deploy OMB workers on Kubernetes clusters.
 You can find the Helm charts under the [deployment/kubernetes](deployment/kubernetes) directory.
 
+To test a workload on your machine without a cloud account, Docker Compose can start one Kafka broker and four workers.
+You can find the files under the [deployment/docker-compose](deployment/docker-compose) directory.
+For more details, see the [deployment/docker-compose/README.md](deployment/docker-compose/README.md).
+
 To benchmark Aiven services, Terraform can create Aiven for Apache Kafka, Aiven for Thanos, and Aiven for Grafana in one project.
 You can find the module under the [deployment/aiven-terraform](deployment/aiven-terraform) directory.
 For more details, see the [deployment/aiven-terraform/README.md](deployment/aiven-terraform/README.md).
