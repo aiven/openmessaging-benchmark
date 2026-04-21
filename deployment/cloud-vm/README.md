@@ -13,6 +13,7 @@ Requirements:
 - Terraform
 - Ansible
 - Aiven client
+- rsync, on your machine and on the nodes (the deploy playbook installs it on the nodes)
 
 Supported VMs:
 
