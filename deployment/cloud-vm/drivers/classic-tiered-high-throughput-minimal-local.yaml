@@ -10,9 +10,9 @@ commonConfig: |
   bootstrap.servers={{ kafka_service_uri }}
   security.protocol=SSL
   ssl.keystore.type=PEM
-  ssl.keystore.location=/opt/benchmark/plans/drivers/{{ svc_name }}-service.pem
+  ssl.keystore.location=/etc/benchmark/drivers/{{ svc_name }}-service.pem
   ssl.truststore.type=PEM
-  ssl.truststore.location=/opt/benchmark/plans/drivers/{{ svc_name }}-ca.pem
+  ssl.truststore.location=/etc/benchmark/drivers/{{ svc_name }}-ca.pem
   # add more common client configs here
   client.id=omb
   metadata.recovery.strategy=rebootstrap
