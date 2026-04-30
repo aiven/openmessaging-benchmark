@@ -14,9 +14,9 @@ module "aws" {
 
   use_spot_instance = false
   worker_instance_type = "m8g.2xlarge"
-  monitoring_instance_type = "m8g.medium"
+  monitoring_instance_type = "m8g.large"
   worker_instance_count = 12
-  allowed_zone_ids = ["use1-az1", "use1-az2", "use1-az5"]
+  allowed_zone_ids = ["use1-az4", "use1-az5", "use1-az6"]
 }
 
 output "worker_ssh_host" {
