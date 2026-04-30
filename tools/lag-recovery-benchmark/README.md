@@ -7,18 +7,21 @@ at scheduled intervals and measuring lag accumulation and recovery time.
 ## Scenario
 
 ```
-Phase 1 (T+0 to T+P):        All 3 consumer groups (A, B, C) consuming normally
-Phase 2 (T+P to T+P+L):      Kill B and C. A continues. Lag builds on B and C.
-Phase 3 (T+P+L to T+P+2L):   Restart B. A stays current, B catches up. C still stopped.
-Phase 4 (T+P+2L to T+2P+2L): Restart C. A and B stay current, C catches up.
-Stop (T+2P+2L):               Stop all. Record per-group lag and recovery time.
+Phase 1 (T+0 to T+P):       All 3 consumer groups (A, B, C) consuming normally
+Phase 2 (T+P to T+P+L):     Kill B and C. A continues. Lag builds on B and C.
+Phase 3 (T+P+L):            Restart B. Wait for B to catch up (99% consumed).
+Phase 4 (T+P+2L):           Restart C. Wait for C to catch up (99% consumed).
+Cool-down (P after catch-up): All groups at steady state.
+Stop:                        Stop all. Record per-group lag and recovery time.
 ```
 
-Where `P` = phase duration (warm-up/cool-down, default 2 min) and
-`L` = lag duration (how long groups stay stopped, default = `P`, configurable via `--lag-duration-minutes`).
+Where `P` = phase duration (warm-up/cool-down), `L` = lag duration (how long groups stay stopped).
+
+After each restart, the orchestrator waits for catch-up (`--catchup-threshold 0.99` = 99% consumed)
+before proceeding. `--catchup-timeout-minutes` is a safety limit if catch-up is too slow.
 
 Example: `--phase-duration-minutes 10 --lag-duration-minutes 60` gives B stopped for 60 min,
-C stopped for 120 min, total runtime ~140 min.
+C stopped for 120 min. Total runtime depends on catch-up speed.
 
 ## How It Works
 
@@ -142,6 +145,8 @@ python3 /opt/benchmark/orchestrator.py \
   --target-rate-mb 30 --message-size 1024 \
   --phase-duration-minutes 10 \
   --lag-duration-minutes 60 \
+  --catchup-timeout-minutes 120 \
+  --catchup-threshold 0.99 \
   --level 3 \
   --kafka-bin /opt/kafka/bin \
   --output /tmp/results-diskless.json
@@ -194,6 +199,8 @@ python3 orchestrator.py [OPTIONS]
 |--------|---------|-------------|
 | `--phase-duration-minutes` | 2.0 | Warm-up and cool-down phase duration |
 | `--lag-duration-minutes` | = phase duration | How long stopped groups accumulate lag |
+| `--catchup-timeout-minutes` | 30 | Max time to wait for catch-up after restart |
+| `--catchup-threshold` | 0.99 | Consumed fraction required (0.99 = 99% consumed before moving on) |
 | `--level` | 2 | Test level: 1=smoke, 2=lag/recovery, 3=multi-group |
 
 ### Kafka lag monitoring

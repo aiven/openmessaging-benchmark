@@ -429,7 +429,7 @@ class MetricsCollector:
     def record_event(self, action: str, **kwargs):
         event = {"time_s": self._elapsed(), "action": action, **kwargs}
         self.events.append(event)
-        log.info("EVENT [T+%.0fs]: %s %s", event["time_s"], action, kwargs if kwargs else "")
+        log.info("EVENT [T+%s]: %s %s", _format_elapsed(event["time_s"]), action, kwargs if kwargs else "")
 
     def collect(self):
         """Collect one snapshot of metrics from all active groups."""
@@ -476,7 +476,7 @@ class MetricsCollector:
 
     def _print_snapshot(self, s: dict):
         period = self._actual_period if self._actual_period > 0 else 1
-        parts = [f"T+{s['timestamp_s']:.0f}s"]
+        parts = [f"T+{_format_elapsed(s['timestamp_s'])}"]
         prod = s.get("producer", {})
         if prod:
             rate = prod.get('rate_msg_s', 0) / period
@@ -503,58 +503,102 @@ class MetricsCollector:
 
 
 # ---------------------------------------------------------------------------
-# Phase Scheduler
+# Phase Runner — imperative execution with catch-up awareness
 # ---------------------------------------------------------------------------
 
-class PhaseScheduler:
-    """Executes phases at scheduled times while collecting metrics between transitions."""
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as XmYs (e.g., 167m02s)."""
+    m = int(seconds) // 60
+    s = int(seconds) % 60
+    return f"{m}m{s:02d}s"
 
-    def __init__(self, collector: MetricsCollector, poll_interval_s: int = 10):
+
+class PhaseRunner:
+    """Executes benchmark phases, collecting metrics between them.
+
+    Supports both fixed-duration waits and catch-up-aware waits.
+    """
+
+    def __init__(self, collector: MetricsCollector, lag_monitor: KafkaLagMonitor,
+                 poll_interval_s: int = 10):
         self.collector = collector
+        self.lag_monitor = lag_monitor
         self.poll_interval_s = poll_interval_s
-        self.phases: list[tuple[float, str, callable]] = []  # (offset_s, name, action_fn)
 
-    def add_phase(self, offset_s: float, name: str, action_fn: callable):
-        self.phases.append((offset_s, name, action_fn))
-
-    def run(self):
-        """Execute all phases, collecting metrics between them."""
-        self.phases.sort(key=lambda p: p[0])
-        self.collector.start()
-        start_time = time.time()
-
-        phase_idx = 0
-        while phase_idx < len(self.phases):
-            target_time = start_time + self.phases[phase_idx][0]
-
-            # Collect metrics until next phase
-            while time.time() < target_time:
-                try:
-                    self.collector.collect()
-                except Exception as e:
-                    log.warning("Metrics collection error: %s", e)
-                sleep_time = min(self.poll_interval_s, target_time - time.time())
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-
-            # Execute phase
-            offset_s, name, action_fn = self.phases[phase_idx]
-            log.info("=" * 60)
-            log.info("PHASE: %s (T+%.0fs)", name, offset_s)
-            log.info("=" * 60)
-            self.collector.record_event(name)
+    def collect_for(self, duration_s: float):
+        """Collect metrics for a fixed duration."""
+        end_time = time.time() + duration_s
+        while time.time() < end_time:
             try:
-                action_fn()
+                self.collector.collect()
             except Exception as e:
-                log.error("Phase '%s' failed: %s", name, e)
-                self.collector.record_event(f"{name}_failed", error=str(e))
-            phase_idx += 1
+                log.warning("Metrics collection error: %s", e)
+            sleep_time = min(self.poll_interval_s, end_time - time.time())
+            if sleep_time > 0:
+                time.sleep(sleep_time)
 
-        # Final metrics collection
+    def collect_until_catchup(self, groups: list, threshold: float = 0.99,
+                              timeout_s: float = 600, cooldown_s: float = 0):
+        """Collect until all groups have caught up, then optionally collect for cooldown.
+
+        threshold: consumed fraction required (e.g., 0.99 = 99% of log-end consumed).
+        Returns True if caught up within timeout, False if timed out.
+        """
+        start = time.time()
+        caught_up = False
+
+        while time.time() - start < timeout_s:
+            try:
+                self.collector.collect()
+            except Exception as e:
+                log.warning("Metrics collection error: %s", e)
+
+            # Check if all groups are caught up (consumed / log_end >= threshold)
+            all_ok = True
+            for group_name in groups:
+                offsets = self.lag_monitor.get_group_offsets(group_name)
+                if offsets and offsets["total_log_end"] > 0:
+                    consumed_pct = 1 - (offsets["total_lag"] / offsets["total_log_end"])
+                    log.info("  CATCHUP %s: %.2f%% consumed (lag=%d, log_end=%d)",
+                             group_name, consumed_pct * 100,
+                             offsets["total_lag"], offsets["total_log_end"])
+                    if consumed_pct < threshold:
+                        all_ok = False
+                elif offsets is None:
+                    all_ok = False
+            if all_ok:
+                caught_up = True
+                elapsed = time.time() - start
+                log.info("All groups caught up in %s (threshold=%.0f%%)",
+                         _format_elapsed(elapsed), threshold * 100)
+                break
+
+            sleep_time = min(self.poll_interval_s, timeout_s - (time.time() - start))
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
+        if not caught_up:
+            log.warning("Catch-up timeout (%s) reached for groups %s",
+                        _format_elapsed(timeout_s), groups)
+
+        if cooldown_s > 0:
+            log.info("Cool-down: collecting for %s", _format_elapsed(cooldown_s))
+            self.collect_for(cooldown_s)
+
+        return caught_up
+
+    def execute_phase(self, name: str, action_fn):
+        """Log and execute a named phase action."""
+        elapsed = self.collector._elapsed()
+        log.info("=" * 60)
+        log.info("PHASE: %s (T+%s)", name, _format_elapsed(elapsed))
+        log.info("=" * 60)
+        self.collector.record_event(name)
         try:
-            self.collector.collect()
-        except Exception:
-            pass
+            action_fn()
+        except Exception as e:
+            log.error("Phase '%s' failed: %s", name, e)
+            self.collector.record_event(f"{name}_failed", error=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -603,12 +647,16 @@ class LagRecoveryBenchmark:
             command_config=command_config,
         )
 
+        # Catch-up settings
+        self.catchup_timeout_s = (args.catchup_timeout_minutes or 30) * 60
+        self.catchup_threshold = args.catchup_threshold
+
         # Metrics
         self.collector = MetricsCollector(
             self.producer_group, self.consumer_groups, self.lag_monitor, self.message_size,
             poll_interval=args.poll_interval,
         )
-        self.scheduler = PhaseScheduler(self.collector, poll_interval_s=args.poll_interval)
+        self.runner = PhaseRunner(self.collector, self.lag_monitor, poll_interval_s=args.poll_interval)
 
     def _make_subscriptions(self, group_name: str) -> list[dict]:
         """Build TopicSubscription list for a consumer group."""
@@ -652,14 +700,15 @@ class LagRecoveryBenchmark:
 
     def run(self):
         num_groups = len(self.consumer_groups)
+        lag_dur_min = self.args.lag_duration_minutes or self.args.phase_duration_minutes
         log.info("Starting lag recovery benchmark with %d consumer group(s)", num_groups)
         log.info("Topics: %s, Partitions: %d, Message size: %d bytes",
                  self.topic_names, self.args.partitions, self.message_size)
         log.info("Target rate: %d MB/s (%.0f msg/s per producer worker)",
                  self.args.target_rate_mb, self.rate_per_producer)
-        log.info("Phase duration: %d minutes, lag duration: %d minutes",
-                 self.args.phase_duration_minutes,
-                 (self.args.lag_duration_minutes or self.args.phase_duration_minutes))
+        log.info("Phase duration: %.1f min, lag duration: %.1f min, catchup timeout: %.1f min",
+                 self.args.phase_duration_minutes, lag_dur_min,
+                 self.catchup_timeout_s / 60)
 
         # --- Setup ---
         all_groups = [self.producer_group] + list(self.consumer_groups.values())
@@ -681,36 +730,70 @@ class LagRecoveryBenchmark:
         # Start producing
         self.producer_group.start_load(self.rate_per_producer, self.message_size)
 
-        # --- Build phase schedule ---
-        # pd = phase duration (warm-up, cool-down phases)
-        # ld = lag duration (how long stopped groups accumulate lag)
+        # --- Execute phases ---
         pd = self.phase_duration_s
         ld = self.lag_duration_s
+        self.collector.start()
 
         if num_groups == 1:
-            # L1: just run and stop
-            self.scheduler.add_phase(2 * pd, "stop_all", self._stop_all)
+            # L1: warm-up then stop
+            self.runner.collect_for(2 * pd)
+            self.runner.execute_phase("stop_all", self._stop_all)
+
         elif num_groups == 2:
             if self.args.level >= 2:
-                # L2/L3: stop B, restart B after lag_duration, stop all
-                self.scheduler.add_phase(1 * pd, "stop_group_B", lambda: self._stop_consumer_group("group-B"))
-                self.scheduler.add_phase(1 * pd + ld, "start_group_B", lambda: self._init_and_create_consumers("group-B"))
-                self.scheduler.add_phase(1 * pd + ld + pd, "stop_all", self._stop_all)
+                # L2: warm-up → stop B → lag accumulation → restart B → catch-up → cool-down → stop
+                self.runner.collect_for(pd)
+                self.runner.execute_phase("stop_group_B", lambda: self._stop_consumer_group("group-B"))
+                self.runner.collect_for(ld)
+                self.runner.execute_phase("start_group_B", lambda: self._init_and_create_consumers("group-B"))
+                self.runner.collect_until_catchup(
+                    ["group-B"], threshold=self.catchup_threshold,
+                    timeout_s=self.catchup_timeout_s, cooldown_s=pd)
+                self.runner.execute_phase("stop_all", self._stop_all)
             else:
-                self.scheduler.add_phase(2 * pd, "stop_all", self._stop_all)
+                self.runner.collect_for(2 * pd)
+                self.runner.execute_phase("stop_all", self._stop_all)
+
         else:
             # Full scenario: 3 groups
-            # T+pd: stop B,C
-            # T+pd+ld: restart B (B stopped for ld)
-            # T+pd+2*ld: restart C (C stopped for 2*ld)
-            # T+pd+2*ld+pd: stop all
-            self.scheduler.add_phase(1 * pd, "stop_groups_B_C", self._stop_bc)
-            self.scheduler.add_phase(1 * pd + ld, "start_group_B", lambda: self._init_and_create_consumers("group-B"))
-            self.scheduler.add_phase(1 * pd + 2 * ld, "start_group_C", lambda: self._init_and_create_consumers("group-C"))
-            self.scheduler.add_phase(1 * pd + 2 * ld + pd, "stop_all", self._stop_all)
+            # 1. Warm-up
+            self.runner.collect_for(pd)
 
-        # --- Execute ---
-        self.scheduler.run()
+            # 2. Stop B and C
+            self.runner.execute_phase("stop_groups_B_C", self._stop_bc)
+
+            # 3. Lag accumulation for B (ld)
+            self.runner.collect_for(ld)
+
+            # 4. Restart B, wait for catch-up
+            self.runner.execute_phase("start_group_B", lambda: self._init_and_create_consumers("group-B"))
+            self.runner.collect_until_catchup(
+                ["group-B"], threshold=self.catchup_threshold,
+                timeout_s=self.catchup_timeout_s)
+
+            # 5. Wait remaining lag time for C (C stopped for 2*ld total)
+            #    Time elapsed since stop: ld + B_catchup_time. Remaining: ld - B_catchup_time (or 0).
+            elapsed_since_stop = self.collector._elapsed() - pd
+            remaining_for_c = max(0, 2 * ld - elapsed_since_stop)
+            if remaining_for_c > 0:
+                log.info("Waiting %s more for C lag accumulation", _format_elapsed(remaining_for_c))
+                self.runner.collect_for(remaining_for_c)
+
+            # 6. Restart C, wait for catch-up + cool-down
+            self.runner.execute_phase("start_group_C", lambda: self._init_and_create_consumers("group-C"))
+            self.runner.collect_until_catchup(
+                ["group-C"], threshold=self.catchup_threshold,
+                timeout_s=self.catchup_timeout_s, cooldown_s=pd)
+
+            # 7. Stop all
+            self.runner.execute_phase("stop_all", self._stop_all)
+
+        # Final collection
+        try:
+            self.collector.collect()
+        except Exception:
+            pass
 
         # --- Results ---
         config = {
@@ -719,6 +802,8 @@ class LagRecoveryBenchmark:
             "message_size_bytes": self.message_size,
             "target_rate_mb_s": self.args.target_rate_mb,
             "phase_duration_minutes": self.args.phase_duration_minutes,
+            "lag_duration_minutes": lag_dur_min,
+            "catchup_timeout_minutes": self.catchup_timeout_s / 60,
             "consumer_groups": list(self.consumer_groups.keys()),
             "level": self.args.level,
         }
@@ -794,6 +879,10 @@ def parse_args(argv=None):
                         help="How long consumer groups stay stopped in minutes. "
                              "Defaults to --phase-duration-minutes if not set. "
                              "Use to extend lag accumulation independently of phase timing.")
+    parser.add_argument("--catchup-timeout-minutes", type=float, default=30,
+                        help="Max time to wait for consumer catch-up after restart (default: 30)")
+    parser.add_argument("--catchup-threshold", type=float, default=0.99,
+                        help="Catch-up threshold as consumed fraction (e.g., 0.99 = 99%% consumed before moving on). Default: 0.99")
     parser.add_argument("--level", type=int, default=2, choices=[1, 2, 3],
                         help="Test level: 1=smoke, 2=lag/recovery, 3=multi-group (default: 2)")
 
