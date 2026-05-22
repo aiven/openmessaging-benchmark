@@ -1,0 +1,14 @@
+name: "Local smoke test: 1 topic / 1 partition / 1KB / 1k msg/s"
+
+topics: 1
+partitionsPerTopic: 1
+keyDistributor: "NO_KEY"
+messageSize: 1024
+payloadFile: "payload/payload-1Kb.data"
+subscriptionsPerTopic: 1
+consumerPerSubscription: 1
+producersPerTopic: 1
+producerRate: 1000
+consumerBacklogSizeGB: 0
+testDurationMinutes: 2
+warmupDurationMinutes: 1

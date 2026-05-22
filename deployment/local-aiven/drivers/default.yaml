@@ -1,0 +1,20 @@
+name: {{ svc_name }}
+driverClass: io.openmessaging.benchmark.driver.kafka.KafkaBenchmarkDriver
+replicationFactor: 3
+topicConfig: |
+  min.insync.replicas=2
+  retention.ms=3600000
+commonConfig: |
+  bootstrap.servers={{ kafka_service_uri }}
+  security.protocol=SSL
+  ssl.keystore.type=PEM
+  ssl.keystore.location={{ keystore_path }}
+  ssl.truststore.type=PEM
+  ssl.truststore.location={{ truststore_path }}
+producerConfig: |
+  acks=all
+  linger.ms=1
+  batch.size=131072
+consumerConfig: |
+  auto.offset.reset=earliest
+  enable.auto.commit=false

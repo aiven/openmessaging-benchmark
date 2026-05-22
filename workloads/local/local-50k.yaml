@@ -1,0 +1,14 @@
+name: "Local sustained: 1 topic / 6 partitions / 1KB / 50k msg/s (~50MB/s)"
+
+topics: 1
+partitionsPerTopic: 6
+keyDistributor: "NO_KEY"
+messageSize: 1024
+payloadFile: "payload/payload-1Kb.data"
+subscriptionsPerTopic: 1
+consumerPerSubscription: 1
+producersPerTopic: 1
+producerRate: 50000
+consumerBacklogSizeGB: 0
+testDurationMinutes: 5
+warmupDurationMinutes: 1
