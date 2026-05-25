@@ -21,10 +21,12 @@ refresh:
 destroy:
 	cd $(TF_DIR) && terraform destroy
 
-../../package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz:
-	cd ../.. && ./mvnw clean package -Dlicense.skip=true -DskipTests
+build:
+	$(MAKE) -C ../.. build
 
-build: ../../package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+rebuild:
+	$(MAKE) -C ../.. clean
+	$(MAKE) -C ../.. build
 
 CLI_JVM_MEM=2G
 WORKER_JVM_MEM=4G
