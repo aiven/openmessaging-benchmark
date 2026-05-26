@@ -56,6 +56,11 @@ class KafkaTopicCreator {
     }
 
     private void createBlocking(List<TopicInfo> topicInfos) {
+        log.info(
+                "Creating {} topics with replicationFactor={} and configs: {}",
+                topicInfos.size(),
+                replicationFactor,
+                topicConfigs);
         BlockingQueue<TopicInfo> queue = new ArrayBlockingQueue<>(topicInfos.size(), true, topicInfos);
         List<TopicInfo> batch = new ArrayList<>();
         AtomicInteger succeeded = new AtomicInteger();
