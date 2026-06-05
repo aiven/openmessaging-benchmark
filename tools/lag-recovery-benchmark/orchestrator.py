@@ -398,6 +398,12 @@ class KafkaLagMonitor:
 # Metrics Collector
 # ---------------------------------------------------------------------------
 
+class WorkloadStalledError(Exception):
+    """Raised when producers are expected to be running but the workload has
+    stalled (producer rate ~0 for several consecutive polls) — typically a dead
+    or unresponsive broker. Lets the orchestrator abort instead of running blind."""
+
+
 @dataclass
 class MetricsSnapshot:
     timestamp_s: float
@@ -421,31 +427,70 @@ class MetricsCollector:
         self.events: list[dict] = []
         # Track which groups are currently active
         self.active_groups: set[str] = set()
+        # Previous cumulative counter values for rate computation (delta / dt).
+        # Keyed by "producer" / group name. Cleared when a group goes inactive so
+        # a restarted group's counter reset doesn't produce a negative/huge rate.
+        self._prev_counts: dict[str, int] = {}
+        # Stall detection: when producers are expected to be running, count
+        # consecutive polls with ~0 producer rate. Abort past stall_polls.
+        self.producing = False
+        self.stall_min_rate = 1.0        # msg/s below which we call it stalled
+        self.stall_polls = 3             # consecutive stalled polls before aborting
+        self._stall_count = 0
 
     def start(self):
         self.start_time = time.time()
         self._last_collect_time = self.start_time
+        self._prev_counts = {}
+        self._stall_count = 0
 
     def record_event(self, action: str, **kwargs):
         event = {"time_s": self._elapsed(), "action": action, **kwargs}
         self.events.append(event)
         log.info("EVENT [T+%s]: %s %s", _format_elapsed(event["time_s"]), action, kwargs if kwargs else "")
 
+    def _rate_from_counter(self, key: str, current: int, dt: float) -> Optional[float]:
+        """Compute msg/s from the delta of a cumulative monotonic counter.
+
+        Returns None on the first sample for `key` (no baseline yet) or if the
+        counter went backwards (worker restart / stats reset), after re-seeding
+        the baseline so the next sample is valid.
+        """
+        prev = self._prev_counts.get(key)
+        self._prev_counts[key] = current
+        if prev is None or current < prev or dt <= 0:
+            return None
+        return (current - prev) / dt
+
     def collect(self):
-        """Collect one snapshot of metrics from all active groups."""
+        """Collect one snapshot of metrics from all active groups.
+
+        Rates are derived from cumulative /counters-stats (monotonic) divided by
+        the actual elapsed time — the same approach Prometheus rate() uses —
+        rather than the worker's self-resetting /period-stats window, which
+        aliases against our variable poll interval. Throughput is rate * message
+        size since CountersStats exposes no byte fields.
+        """
         now = time.time()
         self._actual_period = now - self._last_collect_time
         self._last_collect_time = now
+        dt = self._actual_period
+        mb_per_msg = self.message_size / 1_048_576
         elapsed = self._elapsed()
         snapshot = {"timestamp_s": round(elapsed, 1)}
 
         # Producer stats
+        prod_rate = None
         try:
-            pstats = self.producer_group.aggregate_period_stats()
+            pc = self.producer_group.aggregate_counters()
+            prod_rate = self._rate_from_counter("producer", pc["messagesSent"], dt)
+            err_rate = self._rate_from_counter("producer_errors", pc["messageSendErrors"], dt)
             snapshot["producer"] = {
-                "rate_msg_s": pstats["messagesSent"],
-                "throughput_mb_s": round(pstats["bytesSent"] / 1_048_576, 2),
-                "total_sent": pstats["totalMessagesSent"],
+                "rate_msg_s": round(prod_rate, 1) if prod_rate is not None else 0.0,
+                "throughput_mb_s": round(prod_rate * mb_per_msg, 2) if prod_rate is not None else 0.0,
+                "total_sent": pc["messagesSent"],
+                "send_errors": pc["messageSendErrors"],
+                "send_error_rate": round(err_rate, 1) if err_rate is not None else 0.0,
             }
         except Exception as e:
             log.debug("Failed to collect producer stats: %s", e)
@@ -456,12 +501,16 @@ class MetricsCollector:
             group_stats = {}
             if group_name in self.active_groups:
                 try:
-                    cstats = group.aggregate_period_stats()
-                    group_stats["rate_msg_s"] = cstats["messagesReceived"]
-                    group_stats["throughput_mb_s"] = round(cstats["bytesReceived"] / 1_048_576, 2)
-                    group_stats["total_received"] = cstats["totalMessagesReceived"]
+                    cc = group.aggregate_counters()
+                    rate = self._rate_from_counter(group_name, cc["messagesReceived"], dt)
+                    group_stats["rate_msg_s"] = round(rate, 1) if rate is not None else 0.0
+                    group_stats["throughput_mb_s"] = round(rate * mb_per_msg, 2) if rate is not None else 0.0
+                    group_stats["total_received"] = cc["messagesReceived"]
                 except Exception as e:
                     log.debug("Failed to collect stats for %s: %s", group_name, e)
+            else:
+                # Drop stale baseline so a restarted group recomputes from scratch
+                self._prev_counts.pop(group_name, None)
 
             # Kafka Admin API lag (works even when group is stopped — shows committed offset lag)
             lag = self.lag_monitor.get_group_lag(group_name)
@@ -474,21 +523,43 @@ class MetricsCollector:
         self.snapshots.append(snapshot)
         self._print_snapshot(snapshot)
 
+        # Stall detection — only while producers are expected to be running.
+        # prod_rate is None on the first poll (no baseline) — skip those.
+        if self.producing and prod_rate is not None:
+            if prod_rate < self.stall_min_rate:
+                self._stall_count += 1
+                log.warning("Producer rate %.1f msg/s below %.1f (stall %d/%d) — "
+                            "broker may be unresponsive",
+                            prod_rate, self.stall_min_rate,
+                            self._stall_count, self.stall_polls)
+                if self._stall_count >= self.stall_polls:
+                    raise WorkloadStalledError(
+                        f"Producers stalled (<{self.stall_min_rate} msg/s) for "
+                        f"{self._stall_count} consecutive polls at T+"
+                        f"{_format_elapsed(snapshot['timestamp_s'])}")
+            else:
+                self._stall_count = 0
+
     def _print_snapshot(self, s: dict):
-        period = self._actual_period if self._actual_period > 0 else 1
+        # rate_msg_s / throughput_mb_s are already per-second (computed from
+        # cumulative counter deltas in collect()), so no division here.
         parts = [f"T+{_format_elapsed(s['timestamp_s'])}"]
         prod = s.get("producer", {})
         if prod:
-            rate = prod.get('rate_msg_s', 0) / period
-            tp = prod.get('throughput_mb_s', 0) / period
-            parts.append(f"Pub: {rate:.0f} msg/s ({tp:.2f} MB/s)")
+            rate = prod.get('rate_msg_s', 0)
+            tp = prod.get('throughput_mb_s', 0)
+            pub = f"Pub: {rate:.0f} msg/s ({tp:.2f} MB/s)"
+            err_rate = prod.get('send_error_rate', 0)
+            if err_rate:
+                pub += f" ERR {err_rate:.0f}/s"
+            parts.append(pub)
         total_consumer_tp = 0.0
         for gname in self.consumer_groups:
             gs = s.get(gname, {})
             status = "ON" if gs.get("active") else "OFF"
             lag = gs.get("lag_messages", "?")
-            rate = gs.get("rate_msg_s", 0) / period
-            tp = gs.get("throughput_mb_s", 0) / period
+            rate = gs.get("rate_msg_s", 0)
+            tp = gs.get("throughput_mb_s", 0)
             total_consumer_tp += tp
             parts.append(f"{gname}[{status}]: {rate:.0f} msg/s ({tp:.2f} MB/s) lag={lag}")
         parts.append(f"Total Con: {total_consumer_tp:.2f} MB/s")
@@ -535,6 +606,8 @@ class PhaseRunner:
         while time.time() < end_time:
             try:
                 self.collector.collect()
+            except WorkloadStalledError:
+                raise
             except Exception as e:
                 log.warning("Metrics collection error: %s", e)
             sleep_time = min(self.poll_interval_s, end_time - time.time())
@@ -554,6 +627,8 @@ class PhaseRunner:
         while time.time() - start < timeout_s:
             try:
                 self.collector.collect()
+            except WorkloadStalledError:
+                raise
             except Exception as e:
                 log.warning("Metrics collection error: %s", e)
 
@@ -748,6 +823,8 @@ class LagRecoveryBenchmark:
         pd = self.phase_duration_s
         ld = self.lag_duration_s
         self.collector.start()
+        # Producers run continuously until the final stop_all; enable stall detection.
+        self.collector.producing = True
 
         if self.args.level == 4:
             # Level 4: Multi-layer diskless traversal
@@ -873,6 +950,7 @@ class LagRecoveryBenchmark:
 
     def _stop_all(self):
         """Stop everything."""
+        self.collector.producing = False
         self.producer_group.stop_all()
         for group_name in list(self.collector.active_groups):
             self.consumer_groups[group_name].stop_all()
@@ -1037,6 +1115,15 @@ def main():
         log.info("Interrupted — stopping all workers...")
         benchmark._stop_all()
         sys.exit(1)
+    except WorkloadStalledError as e:
+        log.error("ABORT: %s", e)
+        log.error("Workload stalled — broker likely unresponsive. "
+                  "Check broker/worker logs around this time. Stopping all workers...")
+        try:
+            benchmark._stop_all()
+        except Exception:
+            pass
+        sys.exit(2)
     except Exception:
         log.exception("Benchmark failed")
         try:
