@@ -482,12 +482,16 @@ class MetricsCollector:
             rate = prod.get('rate_msg_s', 0) / period
             tp = prod.get('throughput_mb_s', 0) / period
             parts.append(f"Pub: {rate:.0f} msg/s ({tp:.2f} MB/s)")
+        total_consumer_tp = 0.0
         for gname in self.consumer_groups:
             gs = s.get(gname, {})
             status = "ON" if gs.get("active") else "OFF"
             lag = gs.get("lag_messages", "?")
             rate = gs.get("rate_msg_s", 0) / period
-            parts.append(f"{gname}[{status}]: {rate:.0f} msg/s lag={lag}")
+            tp = gs.get("throughput_mb_s", 0) / period
+            total_consumer_tp += tp
+            parts.append(f"{gname}[{status}]: {rate:.0f} msg/s ({tp:.2f} MB/s) lag={lag}")
+        parts.append(f"Total Con: {total_consumer_tp:.2f} MB/s")
         log.info(" | ".join(parts))
 
     def _elapsed(self) -> float:
@@ -631,6 +635,8 @@ class LagRecoveryBenchmark:
             self.consumer_groups["group-B"] = WorkerGroup("group-B", args.consumer_b_workers)
         if args.consumer_c_workers:
             self.consumer_groups["group-C"] = WorkerGroup("group-C", args.consumer_c_workers)
+        if args.consumer_d_workers:
+            self.consumer_groups["group-D"] = WorkerGroup("group-D", args.consumer_d_workers)
 
         # Lag monitor — extract connection properties from driver config
         bootstrap = args.kafka_bootstrap
@@ -711,6 +717,11 @@ class LagRecoveryBenchmark:
                  self.catchup_timeout_s / 60)
 
         # --- Setup ---
+        # For level 4, group-D is late-joining — don't create its consumers yet
+        deferred_groups = set()
+        if self.args.level == 4:
+            deferred_groups.add("group-D")
+
         all_groups = [self.producer_group] + list(self.consumer_groups.values())
         for g in all_groups:
             g.initialize_driver(self.driver_config_bytes)
@@ -722,8 +733,11 @@ class LagRecoveryBenchmark:
         # Create producers
         self.producer_group.create_producers(self.topic_names)
 
-        # Create all consumer groups
+        # Create consumer groups (except deferred ones)
         for group_name, group in self.consumer_groups.items():
+            if group_name in deferred_groups:
+                log.info("Deferring consumer group %s (late-joining)", group_name)
+                continue
             group.create_consumers(self._make_subscriptions(group_name))
             self.collector.active_groups.add(group_name)
 
@@ -735,7 +749,40 @@ class LagRecoveryBenchmark:
         ld = self.lag_duration_s
         self.collector.start()
 
-        if num_groups == 1:
+        if self.args.level == 4:
+            # Level 4: Multi-layer diskless traversal
+            # Hot consumers (A, B, C) read from diskless cache throughout.
+            # After data accumulates past local.retention.ms, start group-D
+            # from offset 0 — it traverses: tiered → local (TS-consolidated) → diskless cache.
+            # Validates: hot consumers maintain throughput, late joiner reads all layers.
+
+            # 1. Warm-up: all hot consumers reading from cache
+            log.info("L4 Phase 1: warm-up with hot consumers (A, B, C) for %s",
+                     _format_elapsed(pd))
+            self.runner.collect_for(pd)
+
+            # 2. Data accumulation: produce until enough data spans all storage layers.
+            #    lag_duration_minutes controls how long to accumulate before late join.
+            #    Should be > local.retention.ms to ensure tiered data exists.
+            log.info("L4 Phase 2: data accumulation for %s (building tiered + local layers)",
+                     _format_elapsed(ld))
+            self.runner.collect_for(ld)
+
+            # 3. Start late-joining consumer D from beginning (offset 0, fresh group ID)
+            self.runner.execute_phase("start_group_D_from_beginning",
+                                     lambda: self._init_and_create_consumers("group-D"))
+
+            # 4. Wait for D to catch up while monitoring hot consumer throughput
+            log.info("L4 Phase 3: group-D catching up (tiered → local → cache), "
+                     "monitoring hot consumer impact")
+            self.runner.collect_until_catchup(
+                ["group-D"], threshold=self.catchup_threshold,
+                timeout_s=self.catchup_timeout_s, cooldown_s=pd)
+
+            # 5. Stop all
+            self.runner.execute_phase("stop_all", self._stop_all)
+
+        elif num_groups == 1:
             # L1: warm-up then stop
             self.runner.collect_for(2 * pd)
             self.runner.execute_phase("stop_all", self._stop_all)
@@ -756,7 +803,7 @@ class LagRecoveryBenchmark:
                 self.runner.execute_phase("stop_all", self._stop_all)
 
         else:
-            # Full scenario: 3 groups
+            # Full scenario: 3 groups (level 3)
             # 1. Warm-up
             self.runner.collect_for(pd)
 
@@ -857,6 +904,8 @@ def parse_args(argv=None):
                         help="URLs of consumer group B workers")
     parser.add_argument("--consumer-c-workers", nargs="+", default=[],
                         help="URLs of consumer group C workers")
+    parser.add_argument("--consumer-d-workers", nargs="+", default=[],
+                        help="URLs of consumer group D workers (late-joining, reads from beginning)")
 
     # Benchmark configuration
     parser.add_argument("--driver-config", required=True,
@@ -883,8 +932,9 @@ def parse_args(argv=None):
                         help="Max time to wait for consumer catch-up after restart (default: 30)")
     parser.add_argument("--catchup-threshold", type=float, default=0.99,
                         help="Catch-up threshold as consumed fraction (e.g., 0.99 = 99%% consumed before moving on). Default: 0.99")
-    parser.add_argument("--level", type=int, default=2, choices=[1, 2, 3],
-                        help="Test level: 1=smoke, 2=lag/recovery, 3=multi-group (default: 2)")
+    parser.add_argument("--level", type=int, default=2, choices=[1, 2, 3, 4],
+                        help="Test level: 1=smoke, 2=lag/recovery, 3=multi-group, "
+                             "4=multi-layer traversal (late consumer from beginning) (default: 2)")
 
     # Kafka lag monitoring
     parser.add_argument("--kafka-bootstrap", default="localhost:9092",
@@ -941,7 +991,7 @@ def apply_worker_split(args):
         log.error("--worker-split total (%d) exceeds available workers (%d)", sum(counts), len(workers))
         sys.exit(1)
 
-    roles = ["producer_workers", "consumer_a_workers", "consumer_b_workers", "consumer_c_workers"]
+    roles = ["producer_workers", "consumer_a_workers", "consumer_b_workers", "consumer_c_workers", "consumer_d_workers"]
     offset = 0
     for i, count in enumerate(counts):
         if i >= len(roles):
@@ -975,6 +1025,9 @@ def main():
         log.warning("Level %d typically uses --consumer-b-workers for lag/recovery testing", args.level)
     if args.level >= 3 and not args.consumer_b_workers:
         log.error("Level 3 requires --consumer-b-workers")
+        sys.exit(1)
+    if args.level >= 4 and not args.consumer_d_workers:
+        log.error("Level 4 requires --consumer-d-workers (late-joining consumer)")
         sys.exit(1)
 
     benchmark = LagRecoveryBenchmark(args)

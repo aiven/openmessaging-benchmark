@@ -44,6 +44,14 @@ restart_worker:
 	ansible -i $(TF_DIR)/hosts.yaml \
     	-m shell -a "systemctl restart benchmark-worker" worker
 
+stop_all:
+	ansible -i $(TF_DIR)/hosts.yaml \
+    	-m uri -a "url=http://localhost:8080/stop-all method=POST status_code=200,204 timeout=10" worker
+
+deploy_orchestrator:
+	ansible -i $(TF_DIR)/hosts.yaml monitoring \
+    	-m copy -a "src=../../tools/lag-recovery-benchmark/orchestrator.py dest=/opt/benchmark/orchestrator.py mode=0755"
+
 stop_firewall:
 	ansible -i $(TF_DIR)/hosts.yaml \
     	-m shell -a "sudo systemctl stop firewalld" worker
