@@ -5,6 +5,9 @@
 #   make run SERVICE=my-kafka-service
 #   make run SERVICE=my-kafka-service DRIVER=diskless
 #   make run SERVICE=my-kafka-service DRIVER=throughput WORKLOAD=local-50k
+#   make observe SERVICE=my-kafka-service
+#   make observe-teardown SERVICE=my-kafka-service
+#   make monitor SERVICE=my-kafka-service
 #   make clean
 #
 # Prerequisites:
@@ -17,28 +20,51 @@ DRIVER ?= default
 WORKLOAD ?= local-10k
 HEAP_OPTS ?= -Xms1G -Xmx1G
 
+LOGS_SVC       ?= k-aws-logs
+METRICS_SVC    ?= k-aws-metrics
+JOLOKIA_USER   ?= kawsjol1
+JOLOKIA_PASSWORD ?=
+
 ROOT_DIR := $(shell cd ../.. && pwd)
 GENERATED_DIR := $(CURDIR)/generated
 DRIVER_CONFIG := $(GENERATED_DIR)/$(SERVICE)-$(DRIVER).yaml
 WORKLOAD_FILE := $(ROOT_DIR)/workloads/local/$(WORKLOAD).yaml
 BENCHMARK_BIN := $(ROOT_DIR)/bin/benchmark
 
-.PHONY: setup run clean build help list-workloads list-drivers
+OBSERVE_ENV = AIVEN_WEB_URL=$(AIVEN_WEB_URL) SERVICE=$(SERVICE) \
+              LOGS_SVC=$(LOGS_SVC) METRICS_SVC=$(METRICS_SVC) \
+              JOLOKIA_USER=$(JOLOKIA_USER) JOLOKIA_PASSWORD=$(JOLOKIA_PASSWORD)
+
+.PHONY: setup run clean build help list-workloads list-drivers \
+        observe observe-teardown monitor check-errors check-throughput \
+        check-consolidation check-version
 
 help:
 	@echo "Local Aiven Kafka Benchmark"
 	@echo ""
-	@echo "Targets:"
-	@echo "  setup   - Fetch credentials and render all driver configs"
-	@echo "  run     - Run benchmark (calls setup if needed)"
-	@echo "  clean   - Remove generated credentials and configs"
-	@echo "  build   - Build OMB (Maven)"
+	@echo "Benchmark targets:"
+	@echo "  setup              - Fetch credentials and render all driver configs"
+	@echo "  run                - Run benchmark (calls setup if needed)"
+	@echo "  clean              - Remove generated credentials and configs"
+	@echo "  build              - Build OMB (Maven)"
+	@echo ""
+	@echo "Observability targets:"
+	@echo "  observe            - Create OpenSearch + Thanos + Jolokia for SERVICE"
+	@echo "  observe-teardown   - Remove observability services and integrations"
+	@echo "  monitor            - Consolidation health snapshot (run repeatedly)"
+	@echo "  check-errors       - Recent ERRORs/Exceptions in logs"
+	@echo "  check-throughput   - BytesIn/BytesOut per broker via Thanos"
+	@echo "  check-consolidation- Fetcher activity + InklessConfig dump"
+	@echo "  check-version      - Kafka commitId per node"
 	@echo ""
 	@echo "Variables:"
-	@echo "  SERVICE   = $(SERVICE)  (required)"
-	@echo "  DRIVER    = $(DRIVER)"
-	@echo "  WORKLOAD  = $(WORKLOAD)"
-	@echo "  HEAP_OPTS = $(HEAP_OPTS)"
+	@echo "  SERVICE          = $(SERVICE)  (required)"
+	@echo "  DRIVER           = $(DRIVER)"
+	@echo "  WORKLOAD         = $(WORKLOAD)"
+	@echo "  LOGS_SVC         = $(LOGS_SVC)"
+	@echo "  METRICS_SVC      = $(METRICS_SVC)"
+	@echo "  JOLOKIA_USER     = $(JOLOKIA_USER)"
+	@echo "  JOLOKIA_PASSWORD = (set via env)"
 	@echo ""
 	@echo "Available workloads:  make list-workloads"
 	@echo "Available drivers:    make list-drivers"
@@ -90,3 +116,35 @@ run: build
 clean:
 	rm -rf $(GENERATED_DIR)
 	@echo "Cleaned generated configs."
+
+# --- Observability -----------------------------------------------------------
+
+observe:
+	@if [ -z "$(SERVICE)" ]; then echo "ERROR: SERVICE is required"; exit 1; fi
+	@if [ -z "$(AIVEN_WEB_URL)" ]; then echo "ERROR: AIVEN_WEB_URL is required"; exit 1; fi
+	$(OBSERVE_ENV) ./observe/create-observability.sh
+
+observe-teardown:
+	@if [ -z "$(SERVICE)" ]; then echo "ERROR: SERVICE is required"; exit 1; fi
+	@if [ -z "$(AIVEN_WEB_URL)" ]; then echo "ERROR: AIVEN_WEB_URL is required"; exit 1; fi
+	$(OBSERVE_ENV) ./observe/create-observability.sh teardown
+
+monitor:
+	@if [ -z "$(SERVICE)" ]; then echo "ERROR: SERVICE is required"; exit 1; fi
+	$(OBSERVE_ENV) ./observe/monitor-consolidation.sh
+
+check-errors:
+	@if [ -z "$(SERVICE)" ]; then echo "ERROR: SERVICE is required"; exit 1; fi
+	$(OBSERVE_ENV) ./observe/check-errors.sh
+
+check-throughput:
+	@if [ -z "$(SERVICE)" ]; then echo "ERROR: SERVICE is required"; exit 1; fi
+	$(OBSERVE_ENV) ./observe/check-throughput.sh
+
+check-consolidation:
+	@if [ -z "$(SERVICE)" ]; then echo "ERROR: SERVICE is required"; exit 1; fi
+	$(OBSERVE_ENV) ./observe/check-consolidation.sh
+
+check-version:
+	@if [ -z "$(SERVICE)" ]; then echo "ERROR: SERVICE is required"; exit 1; fi
+	$(OBSERVE_ENV) ./observe/check-version.sh
