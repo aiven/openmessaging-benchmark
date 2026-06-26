@@ -70,7 +70,7 @@
         <checkstyle.version>10.3.3</checkstyle.version>
         <commons.lang3.version>3.18.0</commons.lang3.version>
         <log4j.version>2.20.0</log4j.version>
-        <lombok.version>1.18.24</lombok.version>
+        <lombok.version>1.18.34</lombok.version>
         <jackson.version>2.13.2</jackson.version>
         <jcommander.version>1.48</jcommander.version>
         <junit.jupiter.version>5.9.0</junit.jupiter.version>
@@ -442,6 +442,13 @@
                                 <showDeprecation>true</showDeprecation>
                                 <showWarnings>true</showWarnings>
                                 <optimize>true</optimize>
+                                <annotationProcessorPaths>
+                                    <path>
+                                        <groupId>org.projectlombok</groupId>
+                                        <artifactId>lombok</artifactId>
+                                        <version>${lombok.version}</version>
+                                    </path>
+                                </annotationProcessorPaths>
                             </configuration>
                         </plugin>
                     </plugins>

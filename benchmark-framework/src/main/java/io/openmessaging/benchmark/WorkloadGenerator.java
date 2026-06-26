@@ -65,6 +65,22 @@ public class WorkloadGenerator implements AutoCloseable {
             throw new IllegalArgumentException(
                     "Cannot probe producer sustainable rate when building backlog");
         }
+
+        if (workload.produceBytesTarget > 0) {
+            if (workload.producerRate == 0) {
+                throw new IllegalArgumentException(
+                        "Cannot probe producer sustainable rate when bounding the run by produced volume; "
+                                + "set a fixed producerRate");
+            }
+            if (workload.consumerBacklogSizeGB > 0) {
+                throw new IllegalArgumentException(
+                        "produceBytesTarget cannot be combined with consumerBacklogSizeGB");
+            }
+            if (workload.messageSize <= 0) {
+                throw new IllegalArgumentException(
+                        "messageSize must be positive when using produceBytesTarget");
+            }
+        }
     }
 
     public TestResult run() throws Exception {
@@ -127,7 +143,7 @@ public class WorkloadGenerator implements AutoCloseable {
 
         if (workload.warmupDurationMinutes > 0) {
             log.info("----- Starting warm-up traffic ({}m) ------", workload.warmupDurationMinutes);
-            printAndCollectStats(workload.warmupDurationMinutes, TimeUnit.MINUTES);
+            printAndCollectStats(workload.warmupDurationMinutes, TimeUnit.MINUTES, false);
         }
 
         if (workload.consumerBacklogSizeGB > 0) {
@@ -142,9 +158,17 @@ public class WorkloadGenerator implements AutoCloseable {
         }
 
         worker.resetStats();
-        log.info("----- Starting benchmark traffic ({}m)------", workload.testDurationMinutes);
+        if (workload.produceBytesTarget > 0) {
+            log.info(
+                    "----- Starting benchmark traffic (until {} bytes produced) ------",
+                    workload.produceBytesTarget);
+        } else {
+            log.info("----- Starting benchmark traffic ({}m)------", workload.testDurationMinutes);
+        }
 
-        TestResult result = printAndCollectStats(workload.testDurationMinutes, TimeUnit.MINUTES);
+        TestResult result =
+                printAndCollectStats(
+                        workload.testDurationMinutes, TimeUnit.MINUTES, workload.produceBytesTarget > 0);
         runCompleted = true;
 
         worker.stopAll();
@@ -334,13 +358,32 @@ public class WorkloadGenerator implements AutoCloseable {
     }
 
     @SuppressWarnings({"checkstyle:LineLength", "checkstyle:MethodLength"})
-    private TestResult printAndCollectStats(long testDurations, TimeUnit unit) throws IOException {
+    private TestResult printAndCollectStats(long testDurations, TimeUnit unit, boolean volumeBounded)
+            throws IOException {
         long startTime = System.nanoTime();
 
         // Print report stats
         long oldTime = System.nanoTime();
 
-        long testEndTime = testDurations > 0 ? startTime + unit.toNanos(testDurations) : Long.MAX_VALUE;
+        long testEndTime =
+                !volumeBounded && testDurations > 0
+                        ? startTime + unit.toNanos(testDurations)
+                        : Long.MAX_VALUE;
+
+        // Volume-bounded control state. The cumulative counters returned by the worker include the
+        // probe and warm-up traffic, so we baseline them at the start of the benchmark phase and
+        // measure produced/consumed volume relative to that baseline.
+        final long produceTargetMessages =
+                volumeBounded ? workload.produceBytesTarget / workload.messageSize : 0;
+        final CountersStats baseline = volumeBounded ? worker.getCountersStats() : new CountersStats();
+        final long baselineSent = baseline.messagesSent;
+        final long baselineReceived = baseline.messagesReceived;
+        // Poll the lightweight counters more frequently than the 10s stats cadence to keep the
+        // produced-volume overshoot small at high publish rates.
+        final long pollMillis = volumeBounded ? 250 : 10_000;
+        final long statsPeriodNanos = TimeUnit.SECONDS.toNanos(10);
+        boolean producersThrottled = false;
+        long requiredConsumedMessages = 0;
 
         TestResult result = new TestResult();
         result.workload = workload.name;
@@ -353,14 +396,55 @@ public class WorkloadGenerator implements AutoCloseable {
 
         while (true) {
             try {
-                Thread.sleep(10000);
+                Thread.sleep(pollMillis);
             } catch (InterruptedException e) {
                 break;
             }
 
+            long now = System.nanoTime();
+
+            boolean volumeComplete = false;
+            if (volumeBounded) {
+                CountersStats counters = worker.getCountersStats();
+                long produced = counters.messagesSent - baselineSent;
+                long consumed = counters.messagesReceived - baselineReceived;
+
+                if (!producersThrottled && produced >= produceTargetMessages) {
+                    requiredConsumedMessages =
+                            (long)
+                                    (workload.subscriptionsPerTopic
+                                            * produced
+                                            * workload.backlogDrainRatio);
+                    log.info(
+                            "----- Produce target reached: {} messages ({} bytes) produced. "
+                                    + "Throttling producers and draining {} messages to consumers -----",
+                            produced,
+                            produced * (long) workload.messageSize,
+                            requiredConsumedMessages);
+                    worker.adjustPublishRate(0);
+                    producersThrottled = true;
+                }
+
+                if (producersThrottled && consumed >= requiredConsumedMessages) {
+                    log.info(
+                            "----- Consume target reached: {} messages ({} bytes) consumed -----",
+                            consumed,
+                            consumed * (long) workload.messageSize);
+                    volumeComplete = true;
+                }
+            }
+
+            boolean timeComplete = now >= testEndTime && !needToWaitForBacklogDraining;
+            boolean complete = volumeComplete || timeComplete;
+
+            // Only gather and log the period stats on the 10s cadence (or when completing), even
+            // though the volume control loop polls more frequently.
+            if (!complete && (now - oldTime) < statsPeriodNanos) {
+                continue;
+            }
+
             PeriodStats stats = worker.getPeriodStats();
 
-            long now = System.nanoTime();
             double elapsed = (now - oldTime) / 1e9;
 
             double publishRate = stats.messagesSent / elapsed;
@@ -434,7 +518,7 @@ public class WorkloadGenerator implements AutoCloseable {
                     microsToMillis(stats.endToEndLatency.getValueAtPercentile(99.99)));
             result.endToEndLatencyMax.add(microsToMillis(stats.endToEndLatency.getMaxValue()));
 
-            if (now >= testEndTime && !needToWaitForBacklogDraining) {
+            if (complete) {
                 CumulativeLatencies agg = worker.getCumulativeLatencies();
                 log.info(
                         "----- Aggregated Pub Latency (ms) avg: {} - 50%: {} - 95%: {} - 99%: {} - 99.9%: {} - 99.99%: {} - Max: {} | Pub Delay (us)  avg: {} - 50%: {} - 95%: {} - 99%: {} - 99.9%: {} - 99.99%: {} - Max: {}",

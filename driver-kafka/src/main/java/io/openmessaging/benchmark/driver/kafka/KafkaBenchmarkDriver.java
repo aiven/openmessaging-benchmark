@@ -120,11 +120,92 @@ public class KafkaBenchmarkDriver implements BenchmarkDriver {
 
     @Override
     public CompletableFuture<Void> createTopics(List<TopicInfo> topicInfos) {
-        @SuppressWarnings({"unchecked", "rawtypes"})
-        Map<String, String> topicConfigs = new HashMap<>((Map) topicProperties);
-        KafkaTopicCreator topicCreator =
-                new KafkaTopicCreator(admin, topicConfigs, config.replicationFactor);
-        return topicCreator.create(topicInfos);
+        if (config.weightedTopicConfigs == null || config.weightedTopicConfigs.isEmpty()) {
+            return createAllWithConfig(topicInfos, baseTopicConfigs());
+        }
+        return createWithWeightedConfigs(topicInfos);
+    }
+
+    private CompletableFuture<Void> createAllWithConfig(
+            List<TopicInfo> topicInfos, Map<String, String> topicConfigs) {
+        return new KafkaTopicCreator(admin, topicConfigs, config.replicationFactor).create(topicInfos);
+    }
+
+    private CompletableFuture<Void> createWithWeightedConfigs(List<TopicInfo> topicInfos) {
+        int[] counts = allocateByWeight(topicInfos.size(), config.weightedTopicConfigs);
+
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        int offset = 0;
+        for (int i = 0; i < config.weightedTopicConfigs.size(); i++) {
+            int count = counts[i];
+            if (count == 0) {
+                continue;
+            }
+            List<TopicInfo> group = topicInfos.subList(offset, offset + count);
+            offset += count;
+
+            Map<String, String> merged = mergeConfigs(config.weightedTopicConfigs.get(i).config);
+            futures.add(createAllWithConfig(group, merged));
+        }
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private Map<String, String> baseTopicConfigs() {
+        return new HashMap<>((Map) topicProperties);
+    }
+
+    private Map<String, String> mergeConfigs(String overrideConfig) {
+        Map<String, String> merged = baseTopicConfigs();
+        if (overrideConfig == null || overrideConfig.trim().isEmpty()) {
+            return merged;
+        }
+        Properties overrides = new Properties();
+        try {
+            overrides.load(new StringReader(overrideConfig));
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to parse topic config override", e);
+        }
+        overrides.forEach((k, v) -> merged.put((String) k, (String) v));
+        return merged;
+    }
+
+    static int[] allocateByWeight(int total, List<WeightedTopicConfig> configs) {
+        double totalWeight = 0;
+        for (WeightedTopicConfig c : configs) {
+            totalWeight += c.weight;
+        }
+        if (totalWeight <= 0) {
+            throw new IllegalArgumentException("Total weight must be positive");
+        }
+
+        double[] exact = new double[configs.size()];
+        int[] counts = new int[configs.size()];
+        int allocated = 0;
+
+        for (int i = 0; i < configs.size(); i++) {
+            exact[i] = (configs.get(i).weight / totalWeight) * total;
+            counts[i] = (int) Math.floor(exact[i]);
+            allocated += counts[i];
+        }
+
+        int remaining = total - allocated;
+        while (remaining > 0) {
+            double maxFrac = -1;
+            int maxIdx = 0;
+            for (int i = 0; i < configs.size(); i++) {
+                double frac = exact[i] - counts[i];
+                if (frac > maxFrac) {
+                    maxFrac = frac;
+                    maxIdx = i;
+                }
+            }
+            counts[maxIdx]++;
+            exact[maxIdx] = counts[maxIdx];
+            remaining--;
+        }
+
+        return counts;
     }
 
     @Override
