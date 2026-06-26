@@ -62,6 +62,23 @@ public class Workload {
      */
     public double backlogDrainRatio = 1.0;
 
+    /**
+     * If greater than 0, the benchmark phase is bounded by produced volume rather than by time. The
+     * producers will publish until this many bytes (counted as {@code messages * messageSize}) have
+     * been produced during the benchmark phase, after which the producers are throttled to a halt and
+     * the run completes once the consumers have drained the produced data.
+     *
+     * <p>With multiple subscriptions the consumed volume is a multiple of the produced volume, e.g.
+     * producing 1GB with {@code subscriptionsPerTopic = 3} results in 3GB consumed across the
+     * subscriptions. The fraction of the produced data that must be consumed before completing is
+     * governed by {@link #backlogDrainRatio}.
+     *
+     * <p>When set, {@link #testDurationMinutes} is ignored and a fixed {@link #producerRate} is
+     * required (the sustainable-rate prober cannot be used). Cannot be combined with {@link
+     * #consumerBacklogSizeGB}.
+     */
+    public long produceBytesTarget = 0;
+
     public int testDurationMinutes;
 
     public int warmupDurationMinutes = 1;
