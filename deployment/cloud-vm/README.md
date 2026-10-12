@@ -19,37 +19,28 @@ Supported VMs:
 
 ## How to use
 
-Follow the Cloud provider module guide to create a `main.tf` file:
+Each environment is a variables file, `envs/<name>.tfvars`, with its own Terraform workspace and Ansible inventory.
+Copy [`envs/example.tfvars`](./envs/example.tfvars) to `envs/<name>.tfvars` and set the values for your account.
+Git ignores everything in `envs/` except the example, so account details do not get committed.
+See the Cloud provider module guide for the variables:
 
 - [AWS EC2](./terraform/aws/README.md)
+
+> WARNING: This workflow stores Terraform state in a different place than the previous `TF_DIR` workflow. Do not provision a new environment over a running one. Destroy each existing environment with the previous Makefile first: `make TF_DIR=<dir> destroy`.
 
 Setup the credentials depending on the Cloud provider, and then run:
 
 ```shell
-terraform init
-terraform apply
+make provision ENV=<name>
 ```
 
-or
-
-```shell
-make provision
-# or use a different directory
-make TF_DIR=aws1 provision
-```
-
-If it finishes successfully, an Ansible inventory file will be generated at `hosts.yaml`.
+If it finishes successfully, an Ansible inventory file will be generated at `envs/<name>/hosts.yaml`.
+Every `make` target except `ssh_key`, `build`, `rebuild` and `charts` needs `ENV=<name>`.
 
 You can also check the output variables with:
 
 ```shell
-terraform output
-```
-
-or
-
-```shell
-make output
+make output ENV=<name>
 ```
 
 e.g., you should see something like:
@@ -78,7 +69,7 @@ make build
 Then run the Ansible playbook:
 
 ```shell
-ansible-playbook -i hosts.yaml deploy.yaml
+ansible-playbook -i envs/<name>/hosts.yaml deploy.yaml
 ```
 
 The ansible playbook has some variables that you can customize, e.g.:
@@ -91,13 +82,11 @@ The ansible playbook has some variables that you can customize, e.g.:
 You can also run the playbook with `make`:
 
 ```shell
-make deploy
-# or target a different directory
-make TF_DIR=aws1 deploy
+make deploy ENV=<name>
 # and tune JVM memory
-make CLI_JVM_MEM=8G WORKER_JVM_MEM=40G deploy
+make CLI_JVM_MEM=8G WORKER_JVM_MEM=40G deploy ENV=<name>
 # and pass ansible extra vars
-make ANSIBLE_ARGS="--limit monitoring" deploy
+make ANSIBLE_ARGS="--limit monitoring" deploy ENV=<name>
 ```
 
 Ansible will install and setup OMB workers, start the monitoring stack, and configure the necessary dashboards in Grafana.
@@ -105,15 +94,15 @@ Ansible will install and setup OMB workers, start the monitoring stack, and conf
 Run the following commands to validate that workers are running:
 
 ```shell
-make check_workers
+make check_workers ENV=<name>
 ```
 
 and open Grafana at `http://<monitoring_ssh_host>:3000` (default credentials: `admin/admin`)
 and Prometheus at `http://<monitoring_ssh_host>:9090`.
 
 ```shell
-make open_grafana
-make open_prometheus
+make open_grafana ENV=<name>
+make open_prometheus ENV=<name>
 ```
 
 ### Preparing OMB plans
@@ -136,15 +125,13 @@ Then, validate and add any missing workload plans to the [`./workloads`](./workl
 Once all is set locally, run the Ansible playbook to upload the plans to OMB workers:
 
 ```shell
-ansible-playbook -i hosts.yaml upload.yaml -e svc_name=<your-service-name>
+ansible-playbook -i envs/<name>/hosts.yaml upload.yaml -e svc_name=<your-service-name>
 ```
 
 or with `make`:
 
 ```shell
-make upload_plans
-# or target a different directory
-make TF_DIR=aws1 upload_plans
+make upload_plans ENV=<name>
 ```
 
 ### Run the workloads
@@ -158,9 +145,7 @@ ssh -i <private_key_path> <username>@<worker_ssh_host>
 or with `make`:
 
 ```shell
-make connect
-# or target a different directory
-make TF_DIR=aws1 connect
+make connect ENV=<name>
 ```
 
 Once connected, you can start OMB workloads with:
@@ -185,7 +170,7 @@ Use Grafana dashboards to explore the metrics collected during the workload runs
 Or run plotting scripts locally by copying the results from the worker nodes to your local machine:
 
 ```shell
-make download_results
+make download_results ENV=<name>
 ```
 
 and then run the plotting scripts:

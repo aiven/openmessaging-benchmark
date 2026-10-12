@@ -21,6 +21,12 @@ variable "region" {}
 
 variable "ami" {}
 
+variable "inventory_path" {
+  description = "Where to write the Ansible inventory. The Makefile sets one path per environment."
+  type        = string
+  default     = "hosts.yaml"
+}
+
 variable "username" {
   type    = string
   default = "ec2-user"
@@ -278,7 +284,7 @@ resource "local_file" "inventory" {
       public_key_path       = var.public_key_path,
     }
   )
-  filename = "hosts.yaml"
+  filename = var.inventory_path
 }
 
 resource "aws_ec2_instance_state" "worker" {

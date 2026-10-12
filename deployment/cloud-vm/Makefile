@@ -1,7 +1,20 @@
 all: provision deploy
 
-TF_DIR=.
+# Each environment has envs/<ENV>.tfvars (see envs/example.tfvars), its own Terraform
+# workspace, and its own Ansible inventory at envs/<ENV>/hosts.yaml.
+ENV ?=
+TF := terraform -chdir=terraform/aws
+export TF_WORKSPACE = $(ENV)
+INVENTORY = envs/$(ENV)/hosts.yaml
+TF_VARS = -var-file=$(CURDIR)/envs/$(ENV).tfvars -var inventory_path=$(CURDIR)/$(INVENTORY)
 ANSIBLE_INVENTORY=$(shell which terraform-inventory)
+
+NO_ENV_GOALS := ssh_key build rebuild charts .venv
+ifneq ($(filter-out $(NO_ENV_GOALS),$(or $(MAKECMDGOALS),all)),)
+ifeq ($(ENV),)
+$(error ENV is required, e.g. make provision ENV=dev. Copy envs/example.tfvars to envs/<ENV>.tfvars)
+endif
+endif
 
 SSH_ALG=ed25519
 
@@ -9,17 +22,20 @@ ssh_key:
 	ssh-keygen -f ~/.ssh/omb-deploy -t $(SSH_ALG)
 	ssh-add ~/.ssh/omb-deploy
 
-provision:
-	cd $(TF_DIR) && \
-	terraform init && \
-	terraform apply -auto-approve
+.PHONY: check-tfvars
+check-tfvars:
+	@test -f envs/$(ENV).tfvars || { echo "ERROR: envs/$(ENV).tfvars not found. Copy envs/example.tfvars."; exit 1; }
 
-refresh:
-	cd $(TF_DIR) && \
-	terraform refresh
+provision: check-tfvars
+	mkdir -p envs/$(ENV)
+	$(TF) init
+	$(TF) apply -auto-approve $(TF_VARS)
 
-destroy:
-	cd $(TF_DIR) && terraform destroy
+refresh: check-tfvars
+	$(TF) refresh $(TF_VARS)
+
+destroy: check-tfvars
+	$(TF) destroy $(TF_VARS)
 
 build:
 	$(MAKE) -C ../.. build
@@ -34,57 +50,56 @@ ANSIBLE_ARGS=
 
 deploy: build
 	ansible-galaxy install -r ansible-galaxy.yaml
-	ansible-playbook -i $(TF_DIR)/hosts.yaml -e "cli_jvm_mem=$(CLI_JVM_MEM)" -e "worker_jvm_mem=$(WORKER_JVM_MEM)" $(ANSIBLE_ARGS) deploy.yaml
+	ansible-playbook -i $(INVENTORY) -e "cli_jvm_mem=$(CLI_JVM_MEM)" -e "worker_jvm_mem=$(WORKER_JVM_MEM)" $(ANSIBLE_ARGS) deploy.yaml
 WORKER_JVM_MEM=4G
 
 check_workers:
-	ansible -i $(TF_DIR)/hosts.yaml \
+	ansible -i $(INVENTORY) \
     	-m shell -a "systemctl status benchmark-worker" worker
 
 restart_worker:
-	ansible -i $(TF_DIR)/hosts.yaml \
+	ansible -i $(INVENTORY) \
     	-m shell -a "systemctl restart benchmark-worker" worker
 
 stop_firewall:
-	ansible -i $(TF_DIR)/hosts.yaml \
+	ansible -i $(INVENTORY) \
     	-m shell -a "sudo systemctl stop firewalld" worker
 
 IP ?=
 
 connect:
-	ssh -i $(shell cd $(TF_DIR); terraform output -raw public_key_path) $(shell cd $(TF_DIR); terraform output -raw username)@$(shell if [ -n "$$IP" ]; then echo "$$IP"; else cd $(TF_DIR); terraform output -raw worker_ssh_host; fi)
+	ssh -i $(shell $(TF) output -raw public_key_path) $(shell $(TF) output -raw username)@$(shell if [ -n "$$IP" ]; then echo "$$IP"; else $(TF) output -raw worker_ssh_host; fi)
 
 SVC_NAME=kafka
 
 upload_plans:
-	ansible-playbook -i $(TF_DIR)/hosts.yaml -e "svc_name=$(SVC_NAME)" $(ANSIBLE_ARGS) upload.yaml
+	ansible-playbook -i $(INVENTORY) -e "svc_name=$(SVC_NAME)" $(ANSIBLE_ARGS) upload.yaml
 
 CLIENT_VERSION=4.0.0
 
 upload_kafka_client: 
 	# remove existing libraries
-	ansible -i $(TF_DIR)/hosts.yaml \
+	ansible -i $(INVENTORY) \
     	-m shell -a "rm -rf /opt/benchmark/lib/*kafka-clients-*" client
   # add custom library
-	ansible -i $(TF_DIR)/hosts.yaml \
+	ansible -i $(INVENTORY) \
     	-m copy -a "src=package/kafka-clients-$(CLIENT_VERSION).jar dest=/opt/benchmark/lib/" client
 
 TIMESTAMP := $(shell date +%Y%m%d_%H%M%S)
 
 download_results:
-	scp -i $(shell cd $(TF_DIR); terraform output -raw public_key_path) $(shell cd $(TF_DIR); terraform output -raw username)@$(shell cd $(TF_DIR); terraform output -raw worker_ssh_host):'/opt/benchmark/*.json' .
+	scp -i $(shell $(TF) output -raw public_key_path) $(shell $(TF) output -raw username)@$(shell $(TF) output -raw worker_ssh_host):'/opt/benchmark/*.json' .
 
 download_logs:
-	ansible -i $(TF_DIR)/hosts.yaml \
+	ansible -i $(INVENTORY) \
     -m fetch -a "src=/opt/benchmark/benchmark-worker.log dest=./benchmark-worker_{{ inventory_hostname }}.log flat=yes" worker
 
 clean_logs:
-	ansible -i $(TF_DIR)/hosts.yaml \
+	ansible -i $(INVENTORY) \
     -m shell -a "rm -rf /opt/benchmark/benchmark-worker.log" worker
 
 output:
-	cd $(TF_DIR) && \
-	terraform output
+	$(TF) output
 
 .venv:
 	python3 -m venv .venv
@@ -99,10 +114,10 @@ charts: .venv
 	done
 
 connect_monitoring:
-	ssh -i $(shell cd $(TF_DIR); terraform output -raw public_key_path) $(shell cd $(TF_DIR); terraform output -raw username)@$(shell cd $(TF_DIR); terraform output -raw monitoring_ssh_host)
+	ssh -i $(shell $(TF) output -raw public_key_path) $(shell $(TF) output -raw username)@$(shell $(TF) output -raw monitoring_ssh_host)
 
 open_prometheus:
-	open http://$(shell cd $(TF_DIR); terraform output -raw monitoring_ssh_host):9090
+	open http://$(shell $(TF) output -raw monitoring_ssh_host):9090
 
 open_grafana:
-	open http://$(shell cd $(TF_DIR); terraform output -raw monitoring_ssh_host):3000
+	open http://$(shell $(TF) output -raw monitoring_ssh_host):3000
