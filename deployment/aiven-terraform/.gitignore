@@ -1,0 +1,8 @@
+# State and variable files can hold tokens and service credentials. Never commit them.
+*.tfvars
+!envs/example.tfvars
+terraform.tfstate.d/
+.terraform/
+
+# The repository ignores *.hcl. Commit the provider lock file for reproducible init.
+!.terraform.lock.hcl
