@@ -125,7 +125,7 @@ For example:
 - `drivers/diskless-low-throughput.yaml` - Diskless configuration for low throughput
 - `drivers/diskless-high-throughput.yaml` - Diskless configuration optimized for high throughput
 
-When uploaded, each driver template will be named with the pattern `{svc_name}-{template_name}.yaml` on the worker nodes. For instance, if your service is named `my-kafka` and you have `drivers/diskless-high-throughput.yaml`, it will be uploaded as `my-kafka-diskless-high-throughput.yaml`.
+When uploaded, each driver template will be named with the pattern `{svc_name}-{template_name}.yaml` on the worker nodes. For instance, if your service is named `my-kafka` and you have `drivers/diskless-high-throughput.yaml`, it will be uploaded as `/etc/benchmark/drivers/my-kafka-diskless-high-throughput.yaml`. Workloads are uploaded to `/etc/benchmark/workloads/`; files that are no longer in [`./workloads`](./workloads) are deleted from the nodes.
 
 Adapt the OMB driver templates to your needs, e.g., set the topic and client configurations.
 
@@ -169,13 +169,13 @@ Once connected, you can start OMB workloads with:
 sudo -i
 cd /opt/benchmark
 # List available drivers
-ls plans/drivers/
+ls /etc/benchmark/drivers/
 # Run with a specific driver configuration
-./bin/benchmark --drivers plans/drivers/$SVC_NAME-diskless-high-throughput.yaml --workloads workloads/$WORKLOAD_NAME.yaml
+./bin/benchmark --drivers /etc/benchmark/drivers/$SVC_NAME-diskless-high-throughput.yaml --workloads /etc/benchmark/workloads/$WORKLOAD_NAME.yaml
 # or with the default driver
-./bin/benchmark --drivers plans/drivers/$SVC_NAME-default.yaml --workloads workloads/$WORKLOAD_NAME.yaml
+./bin/benchmark --drivers /etc/benchmark/drivers/$SVC_NAME-default.yaml --workloads /etc/benchmark/workloads/$WORKLOAD_NAME.yaml
 # optionally add -x to increase the number of consumer nodes to 2/3 of the available nodes
-./bin/benchmark --drivers plans/drivers/$SVC_NAME-diskless-high-throughput.yaml --workloads workloads/$WORKLOAD_NAME.yaml -x
+./bin/benchmark --drivers /etc/benchmark/drivers/$SVC_NAME-diskless-high-throughput.yaml --workloads /etc/benchmark/workloads/$WORKLOAD_NAME.yaml -x
 ```
 
 ### Explore the results
