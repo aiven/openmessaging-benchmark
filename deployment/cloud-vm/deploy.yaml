@@ -36,7 +36,7 @@
   connection: ssh
   become: true
   vars:
-    kafka_archive_url: https://dlcdn.apache.org/kafka/4.1.1/kafka_2.13-4.1.1.tgz
+    kafka_archive_url: https://www.apache.org/dyn/closer.lua/kafka/4.3.1/kafka_2.13-4.3.1.tgz?action=download
     reinstall_kafka: false
   tasks:
     - name: Set OpenJDK name
