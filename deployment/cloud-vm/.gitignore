@@ -5,3 +5,10 @@ hosts.yaml
 *.pem
 *.cert
 *.key
+
+# Environments: variables files and per-environment inventories
+envs/*
+!envs/example.tfvars
+
+# The repository ignores *.hcl. Commit the provider lock file for reproducible init.
+!terraform/aws/.terraform.lock.hcl

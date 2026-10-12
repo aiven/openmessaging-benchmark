@@ -1,6 +1,6 @@
 # AWS module
 
-[Template](./module.template)
+[Example variables](../../envs/example.tfvars)
 
 ## Features
 
