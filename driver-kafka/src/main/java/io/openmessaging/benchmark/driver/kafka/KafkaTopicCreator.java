@@ -35,6 +35,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.common.KafkaFuture;
+import org.apache.kafka.common.errors.RetriableException;
 import org.apache.kafka.common.errors.TopicExistsException;
 
 @Slf4j
@@ -96,7 +97,7 @@ class KafkaTopicCreator {
         List<NewTopic> newTopics = batch.stream().map(this::newTopic).collect(toList());
 
         return admin.createTopics(newTopics).values().entrySet().stream()
-                .collect(toMap(e -> lookup.get(e.getKey()), e -> isSuccess(e.getValue())));
+                .collect(toMap(e -> lookup.get(e.getKey()), e -> isSuccess(e.getKey(), e.getValue())));
     }
 
     private NewTopic newTopic(TopicInfo topicInfo) {
@@ -106,7 +107,7 @@ class KafkaTopicCreator {
         return newTopic;
     }
 
-    private boolean isSuccess(KafkaFuture<Void> future) {
+    private boolean isSuccess(String topic, KafkaFuture<Void> future) {
         try {
             future.get();
         } catch (InterruptedException e) {
@@ -114,7 +115,17 @@ class KafkaTopicCreator {
             throw new RuntimeException(e);
         } catch (ExecutionException e) {
             log.debug(e.getMessage());
-            return e.getCause() instanceof TopicExistsException;
+            if (e.getCause() instanceof TopicExistsException) {
+                log.warn(
+                        "Topic '{}' already exists. Its partitions and configs are kept; "
+                                + "the values of this run are not applied.",
+                        topic);
+                return true;
+            }
+            if (e.getCause() instanceof RetriableException) {
+                return false;
+            }
+            throw new RuntimeException(String.format("Failed to create topic '%s'", topic), e.getCause());
         }
         return true;
     }
