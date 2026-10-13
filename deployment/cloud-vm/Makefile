@@ -72,8 +72,14 @@ connect:
 
 SVC_NAME=kafka
 
+# AIVEN_ENV=<name> reads the Kafka service details from the aiven-terraform environment <name>
+# (deployment/aiven-terraform) instead of the avn CLI and SVC_NAME.
+# AIVEN_TF_DIR is the aiven-terraform directory that holds the state of that environment.
+AIVEN_ENV ?=
+AIVEN_TF_DIR ?= ../aiven-terraform
+
 upload_plans:
-	ansible-playbook -i $(INVENTORY) -e "svc_name=$(SVC_NAME)" $(ANSIBLE_ARGS) upload.yaml
+	ansible-playbook -i $(INVENTORY) $(if $(AIVEN_ENV),-e "aiven_tf_env=$(AIVEN_ENV)" -e "aiven_tf_dir=$(abspath $(AIVEN_TF_DIR))",-e "svc_name=$(SVC_NAME)") $(ANSIBLE_ARGS) upload.yaml
 
 CLIENT_VERSION=4.0.0
 

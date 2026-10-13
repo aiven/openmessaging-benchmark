@@ -4,6 +4,11 @@
   vars:
     clean_plans: false
     svc_name: ""
+    # Set to an aiven-terraform environment to read the Kafka service details from its
+    # outputs instead of the avn CLI. svc_name is then set to this name, so each
+    # environment gets its own driver files in /etc/benchmark/drivers.
+    aiven_tf_env: ""
+    aiven_tf_dir: "{{ playbook_dir }}/../aiven-terraform"
   tasks:
     - file: path=/etc/benchmark state=absent
       when: clean_plans
@@ -11,7 +16,48 @@
     - file: path=/etc/benchmark/drivers state=directory
     - file: path=/etc/benchmark/workloads state=directory
 
-    # --- Driver preparation (only when svc_name is provided) ---
+    # --- Driver preparation (only when svc_name or aiven_tf_env is provided) ---
+
+    - name: Read Kafka service details from aiven-terraform outputs
+      command: "terraform -chdir={{ aiven_tf_dir }} output -raw {{ item }}"
+      environment:
+        TF_WORKSPACE: "{{ aiven_tf_env }}"
+      loop:
+        - kafka_service_uri
+        - kafka_ca_cert
+        - kafka_access_cert
+        - kafka_access_key
+      register: tf_outputs
+      changed_when: false
+      no_log: true
+      delegate_to: localhost
+      run_once: true
+      become: false
+      when: aiven_tf_env | length > 0
+
+    - name: Set driver prefix and URI from aiven-terraform outputs
+      set_fact:
+        svc_name: "{{ aiven_tf_env }}"
+        kafka_service_uri: "{{ tf_outputs.results[0].stdout }}"
+      run_once: true
+      when: aiven_tf_env | length > 0
+
+    - name: Write Kafka credentials from aiven-terraform outputs
+      copy:
+        content: "{{ item.content | trim }}\n"
+        dest: "{{ playbook_dir }}/{{ item.file }}"
+        mode: "0600"
+      loop:
+        - { file: ca.pem, content: "{{ tf_outputs.results[1].stdout }}" }
+        - { file: service.cert, content: "{{ tf_outputs.results[2].stdout }}" }
+        - { file: service.key, content: "{{ tf_outputs.results[3].stdout }}" }
+      loop_control:
+        label: "{{ item.file }}"
+      no_log: true
+      delegate_to: localhost
+      run_once: true
+      become: false
+      when: aiven_tf_env | length > 0
 
     - name: Gather Kafka service URI
       shell: "avn service get {{ svc_name }} --json | jq -r .service_uri"
@@ -19,13 +65,13 @@
       run_once: true
       become: false
       register: get_service_uri_result
-      when: svc_name | length > 0
+      when: svc_name | length > 0 and aiven_tf_env | length == 0
 
     - name: Set kafka service URI fact
       set_fact:
         kafka_service_uri: "{{ get_service_uri_result.stdout }}"
       run_once: true
-      when: svc_name | length > 0
+      when: svc_name | length > 0 and aiven_tf_env | length == 0
 
     - name: Display the kafka service URI
       debug:
@@ -38,7 +84,7 @@
       delegate_to: localhost
       run_once: true
       become: false
-      when: svc_name | length > 0
+      when: svc_name | length > 0 and aiven_tf_env | length == 0
 
     - name: Prepare driver bundle locally
       block:

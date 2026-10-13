@@ -134,6 +134,15 @@ or with `make`:
 make upload_plans ENV=<name>
 ```
 
+To use a Kafka service created with [`deployment/aiven-terraform`](../aiven-terraform) instead of the `avn` CLI, pass its Terraform environment name:
+
+```shell
+make upload_plans ENV=<name> AIVEN_ENV=<aiven-env>
+```
+
+The playbook reads the service URI, CA certificate, and client certificate and key from the outputs of that environment. It prefixes the driver files with the environment name, for example `<aiven-env>-default.yaml`, so each environment keeps its own driver set in `/etc/benchmark/drivers` even when the services have the same name. It needs the Terraform state of that environment on your machine. `SVC_NAME` is ignored in this case.
+By default the playbook reads the state in `deployment/aiven-terraform` of the same checkout. If the state is in another directory, set `AIVEN_TF_DIR`, for example `export AIVEN_TF_DIR=<path>/deployment/aiven-terraform`.
+
 ### Run the workloads
 
 Now that everything is set up, you can start running the workloads by connecting to one of the OMB workers via SSH:
