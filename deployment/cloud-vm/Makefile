@@ -81,6 +81,14 @@ AIVEN_TF_DIR ?= ../aiven-terraform
 upload_plans:
 	ansible-playbook -i $(INVENTORY) $(if $(AIVEN_ENV),-e "aiven_tf_env=$(AIVEN_ENV)" -e "aiven_tf_dir=$(abspath $(AIVEN_TF_DIR))",-e "svc_name=$(SVC_NAME)") $(ANSIBLE_ARGS) upload.yaml
 
+# delete_topics lists the topics that match TOPICS_REGEX on the service of the uploaded drivers
+# (AIVEN_ENV or SVC_NAME, as for upload_plans). It deletes them only with CONFIRM=true.
+TOPICS_REGEX ?= ^test-topic-
+CONFIRM ?= false
+
+delete_topics:
+	ansible-playbook -i $(INVENTORY) -e "driver_prefix=$(or $(AIVEN_ENV),$(SVC_NAME))" -e 'topics_regex=$(value TOPICS_REGEX)' -e "confirm=$(CONFIRM)" $(ANSIBLE_ARGS) delete_topics.yaml
+
 CLIENT_VERSION=4.0.0
 
 upload_kafka_client: 
