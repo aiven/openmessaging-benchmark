@@ -15,12 +15,21 @@ package io.openmessaging.benchmark;
 
 
 import io.openmessaging.benchmark.utils.distributor.KeyDistributorType;
+import java.util.List;
 
 public class Workload {
     public String name;
 
     /** Number of topics to create in the test. */
     public int topics;
+
+    /**
+     * Optional list of topic names to use. If provided, these topics will be reused if they exist.
+     * The list must have exactly 'topics' distinct, non-blank entries. If not provided, random topic
+     * names will be generated as before. Reuse of existing topics is supported by the Kafka driver
+     * only. Other drivers can fail if a topic already exists.
+     */
+    public List<String> topicNames;
 
     /** Number of partitions each topic will contain. */
     public int partitionsPerTopic;

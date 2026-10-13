@@ -47,6 +47,7 @@ public class WorkloadGenerator implements AutoCloseable {
     private final String driverName;
     private final Workload workload;
     private final Worker worker;
+    private final TopicsInfo topicsInfo;
 
     private final ExecutorService executor =
             Executors.newCachedThreadPool(new DefaultThreadFactory("messaging-benchmark"));
@@ -60,6 +61,9 @@ public class WorkloadGenerator implements AutoCloseable {
         this.driverName = driverName;
         this.workload = workload;
         this.worker = worker;
+        this.topicsInfo =
+                new TopicsInfo(workload.topics, workload.partitionsPerTopic, workload.topicNames);
+        topicsInfo.validate();
 
         if (workload.consumerBacklogSizeGB > 0 && workload.producerRate == 0) {
             throw new IllegalArgumentException(
@@ -69,8 +73,7 @@ public class WorkloadGenerator implements AutoCloseable {
 
     public TestResult run() throws Exception {
         Timer timer = new Timer();
-        List<String> topics =
-                worker.createTopics(new TopicsInfo(workload.topics, workload.partitionsPerTopic));
+        List<String> topics = worker.createTopics(topicsInfo);
         log.info(
                 "Created {} topics in {} ms, topics: [{}]",
                 topics.size(),
