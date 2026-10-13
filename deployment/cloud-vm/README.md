@@ -143,6 +143,25 @@ make upload_plans ENV=<name> AIVEN_ENV=<aiven-env>
 The playbook reads the service URI, CA certificate, and client certificate and key from the outputs of that environment. It prefixes the driver files with the environment name, for example `<aiven-env>-default.yaml`, so each environment keeps its own driver set in `/etc/benchmark/drivers` even when the services have the same name. It needs the Terraform state of that environment on your machine. `SVC_NAME` is ignored in this case.
 By default the playbook reads the state in `deployment/aiven-terraform` of the same checkout. If the state is in another directory, set `AIVEN_TF_DIR`, for example `export AIVEN_TF_DIR=<path>/deployment/aiven-terraform`.
 
+### Delete OMB topics
+
+A workload that uses `topicNames` reuses its topics, and no run deletes topics. To remove the topics of earlier runs, first upload the drivers with `make upload_plans`. Then run:
+
+```shell
+make delete_topics ENV=<name> AIVEN_ENV=<aiven-env> TOPICS_REGEX='^<prefix>'
+```
+
+Use `SVC_NAME=<service>` instead of `AIVEN_ENV=<aiven-env>` when you uploaded the drivers with the `avn` CLI.
+The command runs `kafka-topics.sh` on the first worker, with the client settings from the uploaded `<prefix>-default.yaml`. The prefix is the value of `AIVEN_ENV` or `SVC_NAME`, the same value that `upload_plans` used.
+It lists the topics that match `TOPICS_REGEX` and does not delete them.
+The default regex is `^test-topic-`, the prefix of the generated topic names. Internal topics never match.
+The command fails when `TOPICS_REGEX` is empty.
+The playbook deletes the topics in batches of 100, so a large set takes one `kafka-topics.sh` run for each batch.
+
+> WARNING: This command deletes every topic that matches the regex when you add `CONFIRM=true`. Do not run it on a production service.
+
+To delete the listed topics, run the same command with `CONFIRM=true`.
+
 ### Run the workloads
 
 Now that everything is set up, you can start running the workloads by connecting to one of the OMB workers via SSH:

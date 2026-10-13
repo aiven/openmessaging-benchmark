@@ -1,0 +1,102 @@
+- name: Delete OMB topics from a Kafka service
+  hosts: worker[0]
+  gather_facts: false
+  vars:
+    # Prefix of the driver files that upload.yaml placed in drivers_dir: the service name,
+    # or the aiven-terraform environment name.
+    driver_prefix: ""
+    topics_regex: "^test-topic-"
+    # Without confirm, the playbook only lists the topics that match.
+    confirm: false
+    drivers_dir: /etc/benchmark/drivers
+    kafka_bin: /opt/kafka/bin
+    # Topic names per kafka-topics.sh call. One argument is limited to 128 KiB on Linux.
+    delete_batch_size: 100
+  tasks:
+    - name: Check the driver prefix
+      assert:
+        that: driver_prefix | length > 0
+        fail_msg: "driver_prefix is required. It is the prefix of {{ drivers_dir }}/<prefix>-default.yaml."
+
+    - name: Check the topics regex
+      assert:
+        that: topics_regex | trim | length > 0
+        fail_msg: "topics_regex must not be empty. An empty regex matches every topic."
+
+    - name: Read the uploaded driver file
+      slurp:
+        src: "{{ drivers_dir }}/{{ driver_prefix }}-default.yaml"
+      register: driver_file
+
+    - name: Get the client properties from the driver file
+      set_fact:
+        client_properties: "{{ (driver_file.content | b64decode | from_yaml).commonConfig }}"
+
+    - name: Get the bootstrap servers from the client properties
+      set_fact:
+        bootstrap_servers: "{{ client_properties | regex_search('(?m)^\\s*bootstrap\\.servers=(\\S+)', '\\1') | first }}"
+
+    - name: Delete the matching topics
+      block:
+        - name: Create a temporary client properties file
+          tempfile:
+            state: file
+            suffix: .properties
+          register: client_file
+
+        - name: Write the client properties
+          copy:
+            content: "{{ client_properties }}\n"
+            dest: "{{ client_file.path }}"
+            mode: "0600"
+
+        - name: List the topics
+          command:
+            argv:
+              - "{{ kafka_bin }}/kafka-topics.sh"
+              - --bootstrap-server
+              - "{{ bootstrap_servers }}"
+              - --command-config
+              - "{{ client_file.path }}"
+              - --list
+              - --exclude-internal
+          register: topic_list
+          changed_when: false
+
+        - name: Select the topics that match the regex
+          set_fact:
+            matching_topics: "{{ topic_list.stdout_lines | select('match', topics_regex) | reject('match', '^__') | list }}"
+
+        - name: Show the matching topics
+          debug:
+            msg:
+              - "{{ matching_topics | length }} of {{ topic_list.stdout_lines | length }} topics match '{{ topics_regex }}'"
+              - "{{ matching_topics }}"
+
+        - name: Show the dry-run result
+          debug:
+            msg: "Dry run. No topic deleted. Run again with confirm=true to delete the topics above."
+          when: not (confirm | bool)
+
+        - name: Delete the topics
+          command:
+            argv:
+              - "{{ kafka_bin }}/kafka-topics.sh"
+              - --bootstrap-server
+              - "{{ bootstrap_servers }}"
+              - --command-config
+              - "{{ client_file.path }}"
+              - --delete
+              - --topic
+              - "^(?:{{ item | map('regex_escape') | join('|') }})$"
+          loop: "{{ matching_topics | batch(delete_batch_size | int) | list }}"
+          loop_control:
+            label: "{{ item | length }} topics"
+          when: confirm | bool
+
+      always:
+        - name: Remove the temporary client properties file
+          file:
+            path: "{{ client_file.path }}"
+            state: absent
+          when: client_file is defined and client_file.path is defined
