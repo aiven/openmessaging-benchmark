@@ -69,7 +69,7 @@ For level 3, add `--consumer-c-workers http://localhost:8083`.
 
 ## Remote Workers
 
-Run the orchestrator on a host that reaches the workers. Pass the workers in one of two ways:
+Run the orchestrator on a host that reaches the workers. The [cloud VM deployment](../../deployment/cloud-vm/README.md#run-the-lag-recovery-orchestrator) installs it on the manager node. Pass the workers in one of two ways:
 
 - `--producer-workers` and `--consumer-{a,b,c,d}-workers` with the URLs of each role.
 - `--workers-file` with a YAML file and `--worker-split` with the number of workers per role. Use the two options together. The file has a `workers:` key with a list of URLs, one unquoted `- http...` item per line. The split lists the roles in the order producers, A, B, C, D. For example, `--worker-split 3,3,3,3` gives 3 workers to each of the producers, A, B and C.
