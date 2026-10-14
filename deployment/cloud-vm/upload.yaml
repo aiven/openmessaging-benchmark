@@ -1,5 +1,5 @@
 - name: Prepare OMB plans with drivers and workloads
-  hosts: worker
+  hosts: worker:monitoring
   gather_facts: false
   vars:
     clean_plans: false
@@ -183,3 +183,4 @@
         src: ./workloads/
         dest: /etc/benchmark/workloads/
         delete: yes
+      when: inventory_hostname in groups['worker']
