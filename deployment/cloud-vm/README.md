@@ -114,7 +114,7 @@ For example:
 - `drivers/diskless-low-throughput.yaml` - Diskless configuration for low throughput
 - `drivers/diskless-high-throughput.yaml` - Diskless configuration optimized for high throughput
 
-When uploaded, each driver template will be named with the pattern `{svc_name}-{template_name}.yaml` on the worker nodes. For instance, if your service is named `my-kafka` and you have `drivers/diskless-high-throughput.yaml`, it will be uploaded as `/etc/benchmark/drivers/my-kafka-diskless-high-throughput.yaml`. Workloads are uploaded to `/etc/benchmark/workloads/`; files that are no longer in [`./workloads`](./workloads) are deleted from the nodes.
+When uploaded, each driver template will be named with the pattern `{svc_name}-{template_name}.yaml` on the worker nodes and on the manager node (the `monitoring` host). For instance, if your service is named `my-kafka` and you have `drivers/diskless-high-throughput.yaml`, it will be uploaded as `/etc/benchmark/drivers/my-kafka-diskless-high-throughput.yaml`. Workloads are uploaded to `/etc/benchmark/workloads/`; files that are no longer in [`./workloads`](./workloads) are deleted from the nodes.
 
 Adapt the OMB driver templates to your needs, e.g., set the topic and client configurations.
 
@@ -142,6 +142,8 @@ make upload_plans ENV=<name> AIVEN_ENV=<aiven-env>
 
 The playbook reads the service URI, CA certificate, and client certificate and key from the outputs of that environment. It prefixes the driver files with the environment name, for example `<aiven-env>-default.yaml`, so each environment keeps its own driver set in `/etc/benchmark/drivers` even when the services have the same name. It needs the Terraform state of that environment on your machine. `SVC_NAME` is ignored in this case.
 By default the playbook reads the state in `deployment/aiven-terraform` of the same checkout. If the state is in another directory, set `AIVEN_TF_DIR`, for example `export AIVEN_TF_DIR=<path>/deployment/aiven-terraform`.
+
+> WARNING: The upload copies the Kafka client key to the manager node, in addition to the worker nodes. The security group allows SSH to the manager node from any address. Use short-lived credentials, and destroy the environment when you finish.
 
 ### Delete OMB topics
 
@@ -190,6 +192,32 @@ ls /etc/benchmark/drivers/
 # optionally add -x to increase the number of consumer nodes to 2/3 of the available nodes
 ./bin/benchmark --drivers /etc/benchmark/drivers/$SVC_NAME-diskless-high-throughput.yaml --workloads /etc/benchmark/workloads/$WORKLOAD_NAME.yaml -x
 ```
+
+### Run the lag recovery orchestrator
+
+`make deploy` installs the [lag recovery orchestrator](../../tools/lag-recovery-benchmark/README.md) on the manager node. It also installs Java, Python 3 and the Kafka command-line tools there.
+The orchestrator is in `/opt/benchmark/orchestrator.py`, and the URLs of the workers are in `/opt/benchmark/workers.yaml`.
+The orchestrator reaches the workers over the private network.
+Upload the drivers with `make upload_plans` first. The upload puts the driver files on the manager node too.
+
+Connect to the manager node, and run the orchestrator as root. The key files in `/etc/benchmark/drivers` are readable by root only.
+
+```shell
+make connect_monitoring ENV=<name>
+sudo -i
+cd /opt/benchmark
+nohup python3 orchestrator.py --workers-file workers.yaml --worker-split 2,2,2 \
+  --driver-config /etc/benchmark/drivers/<prefix>-default.yaml \
+  --kafka-bin /opt/kafka/bin --level 2 --output /opt/benchmark/results.json \
+  > orchestrator.log 2>&1 < /dev/null &
+tail -f orchestrator.log
+```
+
+The command runs in the background with `nohup`, so the run continues if the SSH connection drops. Press Ctrl+C to stop `tail`. The run is not affected. After a reconnect, run `tail -f /opt/benchmark/orchestrator.log` to follow the run. The exit code is not visible in this mode. Read `status` in `results.json` when the run ends.
+
+`<prefix>` is the value of `AIVEN_ENV` or `SVC_NAME` that `make upload_plans` used. Run `ls /etc/benchmark/drivers` to see the prefixes on the node.
+
+The split `2,2,2` gives 2 workers to the producers, 2 to group A and 2 to group B. The orchestrator needs 1 worker for each role of the level. The results stay on the manager node.
 
 ### Explore the results
 
