@@ -226,12 +226,54 @@
   become: true
   vars:
     prometheus_thanos_export_enabled: false
-    # Add the following configs to export to thanos
-    thanos_host:
-    thanos_port:
+    # Set aiven_tf_env to read the following values from the aiven-terraform outputs
+    aiven_tf_env: ""
+    aiven_tf_dir: "{{ playbook_dir }}/../aiven-terraform"
+    aws_region: ""
+    thanos_remote_write_uri:
     thanos_username:
     thanos_password:
   tasks:
+    - name: Read Thanos details from aiven-terraform outputs
+      command: "terraform -chdir={{ aiven_tf_dir }} output -raw {{ item }}"
+      environment:
+        TF_WORKSPACE: "{{ aiven_tf_env }}"
+      loop:
+        - thanos_remote_write_uri
+        - thanos_username
+        - thanos_password
+        - cloud_name
+      loop_control:
+        label: "{{ item }}"
+      register: tf_outputs
+      changed_when: false
+      no_log: "{{ item == 'thanos_password' }}"
+      delegate_to: localhost
+      run_once: true
+      become: false
+      when: aiven_tf_env | length > 0
+
+    - name: Enable the export of metrics to Thanos
+      set_fact:
+        prometheus_thanos_export_enabled: true
+        thanos_remote_write_uri: "{{ tf_outputs.results[0].stdout }}"
+        thanos_username: "{{ tf_outputs.results[1].stdout }}"
+        thanos_password: "{{ tf_outputs.results[2].stdout }}"
+        aiven_cloud_name: "{{ tf_outputs.results[3].stdout }}"
+      no_log: true
+      run_once: true
+      when: aiven_tf_env | length > 0
+
+    - name: Warn if Thanos runs in another cloud or region than the workers
+      debug:
+        msg: >-
+          WARNING: The Aiven services run in {{ aiven_cloud_name }} and the workers in aws-{{ aws_region }}.
+          Remote write then crosses clouds or regions. Expect higher latency and data transfer cost.
+      when:
+        - aiven_tf_env | length > 0
+        - aws_region | length > 0
+        - aiven_cloud_name != 'aws-' ~ aws_region
+
     - name: Set dynamic benchmark_name using local 'date' command
       ansible.builtin.set_fact:
         benchmark_name: "omb-{{ lookup('pipe', 'date +%Y%m%d%H%M') }}"
@@ -304,6 +346,7 @@
       template:
         src: "templates/prometheus.yaml"
         dest: "/opt/kafka-monitoring/prometheus.yaml"
+      diff: false
       notify: Restart monitoring services
 
     - name: Deploy with docker compose

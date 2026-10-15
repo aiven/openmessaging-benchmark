@@ -37,8 +37,8 @@ scrape_configs:
 
 {% if prometheus_thanos_export_enabled %}
 remote_write:
-  - url: "https://{{ thanos_host }}:{{ thanos_port}}/api/v1/receive"
+  - url: {{ thanos_remote_write_uri | to_json }}
     basic_auth:
-      username: "{{ thanos_username }}"
-      password: "{{ thanos_password }}"
+      username: {{ thanos_username | to_json }}
+      password: {{ thanos_password | to_json }}
 {% endif %}
