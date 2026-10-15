@@ -105,6 +105,25 @@ make open_grafana ENV=<name>
 make open_prometheus ENV=<name>
 ```
 
+### Send the metrics to the Aiven Thanos
+
+The Prometheus on the manager node can also write the OMB, JMX and node metrics to the Thanos service of an [`aiven-terraform`](../aiven-terraform) environment. The Aiven Grafana of that environment then shows them with the broker metrics. The Prometheus on the manager node keeps its own copy.
+
+Run `make apply` in `deployment/aiven-terraform` first. The Thanos outputs are new, so apply the environment again if you created it before.
+
+Pass the name of the Terraform environment to `deploy`, and then upload the dashboards:
+
+```shell
+make deploy ENV=<name> AIVEN_ENV=<aiven-env>
+make upload_dashboards ENV=<name> AIVEN_ENV=<aiven-env>
+```
+
+`deploy` reads the remote write URI and the credentials from the outputs of `<aiven-env>`, and turns on `remote_write`. `upload_dashboards` loads the dashboards of [`monitoring/grafana/dashboards`](./monitoring/grafana/dashboards) into the folder `omb` of the Aiven Grafana. It replaces dashboards with the same UID. The dashboards have a variable `Datasource`. Select the Thanos data source in it if Grafana does not pick it.
+
+The Aiven services and the workers must run in the same cloud and region. If they do not, `deploy` prints a warning and continues. The region of the workers comes from the Terraform output `region`. Run `make refresh ENV=<name>` to add it to an existing environment. Without it, the check does not run.
+
+WARNING: The Thanos password is in `/opt/kafka-monitoring/prometheus.yaml` on the manager node. All users of that node can read the file.
+
 ### Preparing OMB plans
 
 You can create multiple driver configurations in the [`drivers/`](./drivers) directory. Each YAML file in this directory will be processed as a separate driver configuration.
