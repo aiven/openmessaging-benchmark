@@ -89,6 +89,11 @@ CONFIRM ?= false
 delete_topics:
 	ansible-playbook -i $(INVENTORY) -e "driver_prefix=$(or $(AIVEN_ENV),$(SVC_NAME))" -e 'topics_regex=$(value TOPICS_REGEX)' -e "confirm=$(CONFIRM)" $(ANSIBLE_ARGS) delete_topics.yaml
 
+# upload_dashboards loads the dashboards of monitoring/grafana into the Aiven Grafana of the
+# aiven-terraform environment AIVEN_ENV. The Grafana data source for Thanos must exist.
+upload_dashboards:
+	ansible-playbook -i localhost, -e "aiven_tf_env=$(AIVEN_ENV)" -e "aiven_tf_dir=$(abspath $(AIVEN_TF_DIR))" $(ANSIBLE_ARGS) upload_dashboards.yaml
+
 CLIENT_VERSION=4.0.0
 
 upload_kafka_client: 

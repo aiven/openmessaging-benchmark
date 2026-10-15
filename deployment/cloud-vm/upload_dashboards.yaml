@@ -1,0 +1,72 @@
+- name: Upload the OMB dashboards to the Aiven Grafana
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  become: false
+  vars:
+    aiven_tf_env: ""
+    aiven_tf_dir: "{{ playbook_dir }}/../aiven-terraform"
+    folder_title: omb
+  tasks:
+    - name: Check that aiven_tf_env is set
+      assert:
+        that: aiven_tf_env | length > 0
+        fail_msg: Set AIVEN_ENV to the aiven-terraform environment, for example make upload_dashboards AIVEN_ENV=<name>.
+
+    - name: Read the Grafana URI from aiven-terraform outputs
+      command: "terraform -chdir={{ aiven_tf_dir }} output -raw grafana_service_uri"
+      environment:
+        TF_WORKSPACE: "{{ aiven_tf_env }}"
+      register: grafana_output
+      changed_when: false
+      no_log: true
+
+    - name: Set the Grafana connection facts
+      set_fact:
+        grafana_url: "{{ grafana_output.stdout | urlsplit('scheme') }}://{{ grafana_output.stdout | urlsplit('hostname') }}:{{ grafana_output.stdout | urlsplit('port') }}"
+        grafana_user: "{{ grafana_output.stdout | urlsplit('username') }}"
+        grafana_password: "{{ grafana_output.stdout | urlsplit('password') }}"
+      no_log: true
+
+    - name: List the Grafana folders
+      uri:
+        url: "{{ grafana_url }}/api/folders"
+        url_username: "{{ grafana_user }}"
+        url_password: "{{ grafana_password }}"
+        force_basic_auth: true
+      register: folders
+
+    - name: Create the Grafana folder
+      uri:
+        url: "{{ grafana_url }}/api/folders"
+        method: POST
+        url_username: "{{ grafana_user }}"
+        url_password: "{{ grafana_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          title: "{{ folder_title }}"
+        status_code: 200
+      register: created_folder
+      when: folder_title not in (folders.json | map(attribute='title') | list)
+
+    - name: Set the folder UID
+      set_fact:
+        folder_uid: "{{ (created_folder.json.uid if created_folder is not skipped else (folders.json | selectattr('title', 'equalto', folder_title) | first).uid) }}"
+
+    - name: Upload the dashboards
+      uri:
+        url: "{{ grafana_url }}/api/dashboards/db"
+        method: POST
+        url_username: "{{ grafana_user }}"
+        url_password: "{{ grafana_password }}"
+        force_basic_auth: true
+        body_format: json
+        body:
+          dashboard: "{{ lookup('file', item) | from_json | combine({'id': None}) }}"
+          folderUid: "{{ folder_uid }}"
+          overwrite: true
+        status_code: 200
+      loop: "{{ query('fileglob', playbook_dir + '/monitoring/grafana/dashboards/data/*.json') }}"
+      loop_control:
+        label: "{{ item | basename }}"
