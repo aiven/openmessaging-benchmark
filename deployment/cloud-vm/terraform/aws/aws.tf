@@ -314,3 +314,7 @@ output "username" {
 output "public_key_path" {
   value = var.public_key_path
 }
+
+output "region" {
+  value = var.region
+}
