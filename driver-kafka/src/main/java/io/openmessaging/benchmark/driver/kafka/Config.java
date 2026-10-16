@@ -13,10 +13,21 @@
  */
 package io.openmessaging.benchmark.driver.kafka;
 
+
+import java.util.ArrayList;
+import java.util.List;
+
 public class Config {
     public short replicationFactor;
 
     public String topicConfig;
+
+    /**
+     * Optional weighted topic configurations for mixed workloads. Each entry's {@code config} is
+     * merged on top of {@link #topicConfig} — put shared defaults in {@link #topicConfig} and
+     * per-group overrides here. Topics are distributed proportionally by weight.
+     */
+    public List<WeightedTopicConfig> weightedTopicConfigs = new ArrayList<>();
 
     public String commonConfig;
 
