@@ -68,7 +68,10 @@ stop_firewall:
 IP ?=
 
 connect:
-	ssh -i $(shell $(TF) output -raw public_key_path) $(shell $(TF) output -raw username)@$(shell if [ -n "$$IP" ]; then echo "$$IP"; else $(TF) output -raw worker_ssh_host; fi)
+	ssh -i $(shell $(TF) output -raw public_key_path) $(shell $(TF) output -raw username)@$(shell $(TF) output -raw monitoring_ssh_host)
+
+connect_worker:
+	ssh -i $(shell $(TF) output -raw public_key_path) $(shell $(TF) output -raw username)@$(if $(IP),$(IP),$(shell $(TF) output -raw worker_ssh_host))
 
 SVC_NAME=kafka
 
@@ -131,9 +134,6 @@ charts: .venv
 	for f in $(shell ls $(RESULT_DIR)/*.json); do \
 		.venv/bin/python3 ../../bin/create_charts.py $$f; \
 	done
-
-connect_monitoring:
-	ssh -i $(shell $(TF) output -raw public_key_path) $(shell $(TF) output -raw username)@$(shell $(TF) output -raw monitoring_ssh_host)
 
 open_prometheus:
 	open http://$(shell $(TF) output -raw monitoring_ssh_host):9090
