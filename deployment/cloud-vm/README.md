@@ -194,8 +194,11 @@ ssh -i <private_key_path> <username>@<worker_ssh_host>
 or with `make`:
 
 ```shell
-make connect ENV=<name>
+make connect_worker ENV=<name>
 ```
+
+The command connects to the first worker. Set `IP=<worker_ip>` to connect to another worker.
+`make connect ENV=<name>` connects to the manager node.
 
 Once connected, you can start OMB workloads with:
 
@@ -222,7 +225,7 @@ Upload the drivers with `make upload_plans` first. The upload puts the driver fi
 Connect to the manager node, and run the orchestrator as root. The key files in `/etc/benchmark/drivers` are readable by root only.
 
 ```shell
-make connect_monitoring ENV=<name>
+make connect ENV=<name>
 sudo -i
 cd /opt/benchmark
 nohup python3 orchestrator.py --workers-file workers.yaml --worker-split 2,2,2 \
