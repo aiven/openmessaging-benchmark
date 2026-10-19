@@ -53,6 +53,9 @@ deploy: build
 	ansible-playbook -i $(INVENTORY) -e "cli_jvm_mem=$(CLI_JVM_MEM)" -e "worker_jvm_mem=$(WORKER_JVM_MEM)" $(if $(AIVEN_ENV),-e "aiven_tf_env=$(AIVEN_ENV)" -e "aiven_tf_dir=$(abspath $(AIVEN_TF_DIR))" -e "aws_region=$$($(TF) output -raw region 2>/dev/null)") $(ANSIBLE_ARGS) deploy.yaml
 WORKER_JVM_MEM=4G
 
+patch_omb: rebuild
+	ansible-playbook -i $(INVENTORY) $(ANSIBLE_ARGS) patch-omb.yaml
+
 check_workers:
 	ansible -i $(INVENTORY) \
     	-m shell -a "systemctl status benchmark-worker" worker
