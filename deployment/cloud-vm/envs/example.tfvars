@@ -23,3 +23,7 @@ worker_instance_count = 6
 # Spread workers across zones or pin all nodes to a single zone
 # az_override = "eu-central-1a"
 az_override = "" # empty uses all zones
+
+# Restrict the zones by zone ID. An empty list allows all zones.
+# allowed_zone_ids = ["euc1-az1", "euc1-az2"]
+allowed_zone_ids = []
