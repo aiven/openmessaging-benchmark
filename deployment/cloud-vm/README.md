@@ -247,6 +247,8 @@ The split `2,2,2` gives 2 workers to the producers, 2 to group A and 2 to group 
 
 Use Grafana dashboards to explore the metrics collected during the workload runs.
 
+The dashboard `AWS Network Limits (ENA)` shows the counters of the packets that AWS queues or drops when a worker exceeds the network allowance of its instance type.
+
 Or run plotting scripts locally by copying the results from the worker nodes to your local machine:
 
 ```shell
