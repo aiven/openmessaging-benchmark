@@ -1,0 +1,7 @@
+.venv
+.git
+.idea
+*.iml
+**/target
+!package/target/*-bin.tar.gz
+deployment
