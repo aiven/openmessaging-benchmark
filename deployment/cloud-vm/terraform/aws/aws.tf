@@ -96,6 +96,12 @@ variable "az_override" {
   default     = ""
 }
 
+variable "allowed_zone_ids" {
+  description = "List of allowed availability zone IDs (e.g. use1-az1, use1-az2). Empty means all."
+  type        = list(string)
+  default     = []
+}
+
 locals {
   use_all_azs = var.az_override == ""
 }
@@ -107,11 +113,41 @@ data "aws_availability_zone" "pinned_az" {
 
 data "aws_availability_zones" "available" {
   state = "available"
+
+  dynamic "filter" {
+    for_each = local.use_all_azs && length(var.allowed_zone_ids) > 0 ? [1] : []
+    content {
+      name   = "zone-id"
+      values = var.allowed_zone_ids
+    }
+  }
+}
+
+data "aws_ec2_instance_type_offerings" "worker" {
+  filter {
+    name   = "instance-type"
+    values = [var.worker_instance_type]
+  }
+  location_type = "availability-zone"
+}
+
+data "aws_ec2_instance_type_offerings" "monitoring" {
+  filter {
+    name   = "instance-type"
+    values = [var.monitoring_instance_type]
+  }
+  location_type = "availability-zone"
 }
 
 locals {
-  # if not pinned to a single-az, then use all available azs; otherwise, use single az
-  selected_azs = local.use_all_azs ? data.aws_availability_zones.available.names : data.aws_availability_zone.pinned_az.*.name
+  # AZs that offer the worker and the monitoring instance types
+  supported_azs = tolist(setintersection(
+    toset(data.aws_availability_zones.available.names),
+    toset(data.aws_ec2_instance_type_offerings.worker.locations),
+    toset(data.aws_ec2_instance_type_offerings.monitoring.locations)
+  ))
+  # if not pinned to a single-az, then use supported azs; otherwise, use single az
+  selected_azs = local.use_all_azs ? local.supported_azs : data.aws_availability_zone.pinned_az.*.name
 }
 
 # Create a VPC to launch our instances into
