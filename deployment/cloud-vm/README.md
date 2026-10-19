@@ -91,6 +91,8 @@ make ANSIBLE_ARGS="--limit monitoring" deploy ENV=<name>
 
 Ansible will install and setup OMB workers, start the monitoring stack, and configure the necessary dashboards in Grafana.
 
+After a code change, `make patch_omb ENV=<name>` rebuilds the package and replaces the libraries and driver jars on the workers. It restarts the worker service and keeps the `bin` scripts, so the JVM memory settings stay. It does not change the manager node.
+
 Run the following commands to validate that workers are running:
 
 ```shell
