@@ -44,3 +44,21 @@ consumerConfig: |
 ```
 
 This generates producer `client.id=omb-producer_az=value` and `client.rack=value`; consumer `client.id=omb-consumer_az=value` and `client.rack=value`
+
+### Skip the existing backlog
+
+To measure only the messages that producers send in the run, set `resetToLatest: true` in the driver file.
+
+```yaml
+resetToLatest: true
+```
+
+Each consumer waits for its partition assignment. Then it moves each assigned partition to the end offset and commits that offset to its consumer group. A later rebalance does not move the position back.
+
+The option has four limits:
+
+- Each consumer needs at least one partition. If a consumer has no partition after 2 minutes, `createConsumer` fails. Do not create more consumers than partitions. The worker tries all its consumers before it reports the failure, so each surplus consumer adds 2 minutes.
+- The option changes the committed offsets of the consumer group.
+- A worker creates its consumers one after the other, and each consumer waits for its assignment. A new consumer group needs about 3 seconds with the broker default `group.initial.rebalance.delay.ms`. A worker request times out after 10 minutes, so a worker with a few hundred consumer groups can time out.
+- The option is tested with the classic consumer group protocol only. The `consumer` protocol (KIP-848) is not tested.
+

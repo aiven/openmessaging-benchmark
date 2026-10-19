@@ -23,4 +23,10 @@ public class Config {
     public String producerConfig;
 
     public String consumerConfig;
+
+    /**
+     * True if each consumer waits for its partition assignment, then moves each assigned partition to
+     * the end offset and commits it; false otherwise.
+     */
+    public boolean resetToLatest = false;
 }
