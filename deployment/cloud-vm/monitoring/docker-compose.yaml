@@ -6,6 +6,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yaml:/etc/prometheus/prometheus.yml
+      - ./prometheus-rules:/etc/prometheus/rules
   grafana:
     image: grafana/grafana:latest
     ports:

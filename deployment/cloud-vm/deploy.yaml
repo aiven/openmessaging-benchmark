@@ -57,6 +57,7 @@
           - chrony
           - tuned
           - rsync
+          - ethtool
           - "{{ java_package_package }}"
 
     - name: Check state of kafka directory
@@ -104,7 +105,13 @@
 - name: Install Node Exporter
   hosts: worker
   roles:
-    - prometheus.prometheus.node_exporter
+    - role: prometheus.prometheus.node_exporter
+      vars:
+        node_exporter_enabled_collectors:
+          - systemd
+          - textfile:
+              directory: "{{ node_exporter_textfile_dir }}"
+          - ethtool
 
 - name: Setup Benchmark worker
   hosts: worker
@@ -341,6 +348,11 @@
     - copy:
         src: ./monitoring/grafana/
         dest: /opt/kafka-monitoring/grafana/
+    - name: Copy prometheus rules
+      copy:
+        src: ./monitoring/prometheus-rules/
+        dest: /opt/kafka-monitoring/prometheus-rules/
+      notify: Restart monitoring services
 
     - name: Template prometheus.yaml
       template:
