@@ -65,3 +65,12 @@ resource "aiven_service_integration" "thanos_grafana" {
   source_service_name      = aiven_grafana.dashboards.service_name
   destination_service_name = aiven_thanos.metrics.service_name
 }
+
+resource "aiven_service_integration" "thanos_grafana_dashboard" {
+  project                  = var.project
+  integration_type         = "dashboard"
+  source_service_name      = aiven_grafana.dashboards.service_name
+  destination_service_name = aiven_thanos.metrics.service_name
+
+  depends_on = [aiven_service_integration.kafka_metrics]
+}
