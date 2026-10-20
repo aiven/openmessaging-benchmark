@@ -21,11 +21,22 @@
       changed_when: false
       no_log: true
 
+    - name: Read the Grafana login from aiven-terraform outputs
+      command: "terraform -chdir={{ aiven_tf_dir }} output -raw {{ item }}"
+      environment:
+        TF_WORKSPACE: "{{ aiven_tf_env }}"
+      loop:
+        - grafana_username
+        - grafana_password
+      register: grafana_login
+      changed_when: false
+      no_log: true
+
     - name: Set the Grafana connection facts
       set_fact:
         grafana_url: "{{ grafana_output.stdout | urlsplit('scheme') }}://{{ grafana_output.stdout | urlsplit('hostname') }}:{{ grafana_output.stdout | urlsplit('port') }}"
-        grafana_user: "{{ grafana_output.stdout | urlsplit('username') }}"
-        grafana_password: "{{ grafana_output.stdout | urlsplit('password') }}"
+        grafana_user: "{{ grafana_login.results[0].stdout }}"
+        grafana_password: "{{ grafana_login.results[1].stdout }}"
       no_log: true
 
     - name: List the Grafana folders
