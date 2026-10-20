@@ -222,6 +222,8 @@ ls /etc/benchmark/drivers/
 ./bin/benchmark --drivers /etc/benchmark/drivers/$SVC_NAME-diskless-high-throughput.yaml --workloads /etc/benchmark/workloads/$WORKLOAD_NAME.yaml -x
 ```
 
+You can run the same commands on the manager node (`make connect ENV=<name>`) instead. `make deploy` installs the CLI in `/opt/benchmark` on the manager node, and `make upload_plans` uploads the drivers and the workloads to it. The run then adds no load to a worker, and the result files stay on the manager node. The manager node also runs Prometheus and Grafana, so choose a `monitoring_instance_type` with enough memory for `CLI_JVM_MEM`.
+
 ### Run the lag recovery orchestrator
 
 `make deploy` installs the [lag recovery orchestrator](../../tools/lag-recovery-benchmark/README.md) on the manager node. It also installs Java, Python 3 and the Kafka command-line tools there.

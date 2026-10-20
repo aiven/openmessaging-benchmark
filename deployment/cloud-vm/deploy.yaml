@@ -181,13 +181,15 @@
         daemon_reload: yes
         name: "benchmark-worker"
 
-- name: Setup the orchestrator on the manager node
+- name: Setup the OMB CLI and the orchestrator on the manager node
   hosts: monitoring
   connection: ssh
   become: true
   vars:
     kafka_archive_url: https://www.apache.org/dyn/closer.lua/kafka/4.3.1/kafka_2.13-4.3.1.tgz?action=download
     reinstall_kafka: false
+    reinstall_omb: false
+    cli_jvm_mem: 1G
     java_package_name: "{{ 'java-17-amazon-corretto-devel' if ansible_distribution == 'Amazon' else 'java-17-openjdk-devel' }}"
   tasks:
     - name: Install Java and Python
@@ -195,6 +197,7 @@
         pkg:
           - "{{ java_package_name }}"
           - python3
+          - rsync
         state: present
 
     - name: Check for the Kafka CLI tools
@@ -216,6 +219,26 @@
 
     - name: Create the orchestrator directory
       file: path=/opt/benchmark state=directory
+    - name: Check for the OMB CLI
+      stat: path=/opt/benchmark/bin/benchmark
+      register: omb_cli
+    - name: Remove old benchmark lib directory
+      file:
+        path: /opt/benchmark/lib
+        state: absent
+      when: reinstall_omb or not omb_cli.stat.exists
+    - name: Copy benchmark code
+      unarchive:
+        src: ../../package/target/openmessaging-benchmark-0.0.1-SNAPSHOT-bin.tar.gz
+        dest: /opt/benchmark
+        extra_opts:
+          - "--strip-components=1"
+      when: reinstall_omb or not omb_cli.stat.exists
+    - name: Configure cli memory
+      lineinfile:
+        dest: /opt/benchmark/bin/benchmark
+        regexp: '^JVM_MEM='
+        line: 'JVM_MEM="-Xmx{{ cli_jvm_mem }}"'
     - name: Deploy the orchestrator
       copy:
         src: ../../tools/lag-recovery-benchmark/orchestrator.py

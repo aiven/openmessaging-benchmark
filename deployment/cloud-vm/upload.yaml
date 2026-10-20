@@ -183,4 +183,3 @@
         src: ./workloads/
         dest: /etc/benchmark/workloads/
         delete: yes
-      when: inventory_hostname in groups['worker']
