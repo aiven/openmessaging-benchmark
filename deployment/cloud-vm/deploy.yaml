@@ -382,3 +382,6 @@
     - debug:
         msg: "Benchmark monitoring {{ item }}"
       with_items: "{{ groups['monitoring'] }}"
+
+- import_playbook: upload_dashboards.yaml
+  when: (aiven_tf_env | default('')) | length > 0
