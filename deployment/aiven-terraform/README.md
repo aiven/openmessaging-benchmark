@@ -33,7 +33,7 @@ A token set in the `aiven_api_token` variable overrides `AIVEN_TOKEN`.
 
 ## Outputs
 
-The outputs of the Kafka service are the connection settings for the benchmark drivers. `thanos_remote_write_uri`, `thanos_username` and `thanos_password` are the settings for Prometheus `remote_write`. `grafana_service_uri` has the Grafana credentials. `cloud_name` is the cloud and region of the services. Use `terraform output -raw <name>` to read a value.
+The outputs of the Kafka service are the connection settings for the benchmark drivers. `thanos_remote_write_uri`, `thanos_username` and `thanos_password` are the settings for Prometheus `remote_write`. `grafana_service_uri`, `grafana_username` and `grafana_password` are the Grafana URL and login. `cloud_name` is the cloud and region of the services. Use `terraform output -raw <name>` to read a value.
 
 ## Not done yet
 
