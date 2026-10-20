@@ -37,12 +37,22 @@ output "grafana_service_uri" {
   sensitive = true
 }
 
+output "grafana_username" {
+  value = aiven_grafana.dashboards.service_username
+}
+
+output "grafana_password" {
+  value     = aiven_grafana.dashboards.service_password
+  sensitive = true
+}
+
 output "cloud_name" {
   value = aiven_kafka.kafka.cloud_name
 }
 
 output "thanos_remote_write_uri" {
-  value = aiven_thanos.metrics.thanos[0].receiver_remote_write_uri
+  value     = aiven_thanos.metrics.thanos[0].receiver_remote_write_uri
+  sensitive = true
 }
 
 output "thanos_username" {
